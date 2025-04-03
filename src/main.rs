@@ -166,6 +166,7 @@ impl StreamProcessor {
                         receiver,
                         Arc::clone(&shutdown_notify)
                     );
+                    self.client_processors.insert(client, sender.clone());
                     tokio::spawn(async move {client_processor.crank().await});
                     sender.send(TxPayload { kind, tx, amount }).await?;
                 }
@@ -215,5 +216,6 @@ async fn main() -> anyhow::Result<()> {
 // Do not use anyhow (except maybe returning from main?)
 // Test with chained streams from multiple files
 // Introduce rate limiting?
+// Tracing?
 
 // Share in a public repo?
