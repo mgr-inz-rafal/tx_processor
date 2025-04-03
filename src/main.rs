@@ -4,7 +4,7 @@ use csv_async::AsyncReaderBuilder;
 use futures_util::{Stream, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use tokio::fs::File;
+use tokio::{fs::File, sync::mpsc};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 #[derive(Debug)]
@@ -38,28 +38,27 @@ impl TxType {
     }
 }
 
-struct ClientProcessor {
-    client: u16,
+struct Balances {
+    available: Decimal,
+    held: Decimal,
+    total: Decimal,
+    locked: bool,
 }
 
-impl ClientProcessor {
-    fn new(client: u16) -> Self {
-        Self { client }
+async fn client_stream_handler(mut receiver: mpsc::Receiver<TxPayload>) -> anyhow::Result<()> {
+    while let Some(record) = receiver.recv().await {
+        let TxPayload {
+            kind,
+            tx,
+            amount,
+        } = record;
+        println!("Processing: {:?}, tx: {}, amount: {}", kind, tx, amount);
     }
-
-    async fn process(
-        &self,
-        kind: TxType,
-        tx: u32,
-        amount: Decimal,
-    ) -> anyhow::Result<()> {
-        println!("{}: {:?}, tx: {}, amount: {}", self.client, kind, tx, amount);
-        Ok(())
-    }
+    Ok(())
 }
 
 struct StreamProcessor {
-    client_processors: HashMap<u16, ClientProcessor>,
+    client_processors: HashMap<u16, mpsc::Sender<TxPayload>>,
 }
 
 impl StreamProcessor {
@@ -81,23 +80,18 @@ impl StreamProcessor {
 
             let client_processor = self.client_processors.get(&client);
             match client_processor {
-                Some(processor) => {
-                    processor.process(kind, tx, amount).await?;
+                Some(sender) => {
+                    sender.send(TxPayload { kind, tx, amount }).await?;
                 }
                 None => {
-                    let new_processor = self.spawn_client_processor(client);
-                    new_processor.process(kind, tx, amount).await?;
-                    self.client_processors.insert(client, new_processor);
+                    let (sender, receiver) = mpsc::channel(100);
+                    tokio::spawn(client_stream_handler(receiver));
+                    sender.send(TxPayload { kind, tx, amount }).await?;
                 }
             }
         }
 
         Ok(())
-    }
-
-    fn spawn_client_processor(&mut self, client_id: u16) -> ClientProcessor {
-        let client_processor = ClientProcessor::new(client_id);
-        client_processor
     }
 }
 
@@ -106,6 +100,12 @@ struct Record {
     #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
     kind: TxType,
     client: u16,
+    tx: u32,
+    amount: Decimal,
+}
+
+struct TxPayload {
+    kind: TxType,
     tx: u32,
     amount: Decimal,
 }
@@ -132,5 +132,6 @@ async fn main() -> anyhow::Result<()> {
 // Maximum number of clients handled at the same time
 // Do not use anyhow (except maybe returning from main?)
 // Test with chained streams from multiple files
+// Introduce rate limiting?
 
 // Share in a public repo?
