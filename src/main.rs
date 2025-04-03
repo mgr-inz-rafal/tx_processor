@@ -1,14 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{atomic::AtomicU32, Arc}};
 
 use csv_async::AsyncReaderBuilder;
 use futures_util::{Stream, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use tokio::{fs::File, sync::{mpsc, Notify}};
+use tokio::{fs::File, sync::{mpsc, oneshot, Notify}};
 use tokio_util::compat::TokioAsyncReadCompatExt;
+use std::sync::atomic;
 
 // TODO: Think about backpressure
-const CHANNEL_SIZE: usize = 1000;
+const TX_CHANNEL_SIZE: usize = 1000;
+const RESULTS_CHANNEL_SIZE: usize = 100;
 
 #[derive(Debug)]
 enum TxType {
@@ -41,6 +43,7 @@ impl TxType {
     }
 }
 
+#[derive(Debug, Clone)]
 struct Balances {
     available: Decimal,
     held: Decimal,
@@ -99,14 +102,17 @@ struct ClientProcessor {
     client: u16,
     balances: Balances,
     tx_receiver: mpsc::Receiver<TxPayload>,
+    result_sender: mpsc::Sender<Balances>,
+    // TODO: Probably not needed, we should always process all transactions in this example.
     shutdown_notify: Arc<Notify>,
 }
 
 impl ClientProcessor {
-    fn new(client: u16, tx_receiver: mpsc::Receiver<TxPayload>, shutdown_notify: Arc<Notify>) -> Self {
+    fn new(client: u16, tx_receiver: mpsc::Receiver<TxPayload>, result_sender: mpsc::Sender<Balances>,shutdown_notify: Arc<Notify>) -> Self {
         Self {
             client,
             tx_receiver,
+            result_sender,
             balances: Balances::new(),
             shutdown_notify,
         }
@@ -116,7 +122,7 @@ impl ClientProcessor {
         loop {
             tokio::select! {
                 Some(tx) = self.tx_receiver.recv() => {
-                    println!("Processing tx: {:?}", tx);
+                    println!("processing tx for client {}: {:?}", self.client, tx);
                     self.balances.apply(tx);
                 },
 
@@ -126,17 +132,27 @@ impl ClientProcessor {
                 },
             }
         }
+
+        println!("client {} processed all transactions, sending results", self.client);
+        self.result_sender.send(self.balances.clone()).await.unwrap_or_else(|_| {
+            println!("failed to send result for client {}", self.client);
+        });
     }
 }
 
 struct StreamProcessor {
     client_processors: HashMap<u16, mpsc::Sender<TxPayload>>,
+    result_receivers: HashMap<u16, mpsc::Receiver<Balances>>,
+    // TODO: One for all clients?
+    shutdown_notifiers: HashMap<u16, Arc<Notify>>,
 }
 
 impl StreamProcessor {
     fn new() -> Self {
         Self {
             client_processors: HashMap::new(),
+            result_receivers: HashMap::new(),
+            shutdown_notifiers: HashMap::new(),
         }
     }
 
@@ -158,20 +174,39 @@ impl StreamProcessor {
                     sender.send(TxPayload { kind, tx, amount }).await?;
                 }
                 None => {
-                    let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
+                    let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
+                    let (result_sender, result_receiver) = mpsc::channel(RESULTS_CHANNEL_SIZE);
                     let shutdown_notify = Arc::new(Notify::new());
                     // TODO: Consider worker pool? When there are millions of clients the current approach could be problematic.
                     let mut client_processor = ClientProcessor::new(
                         client,
-                        receiver,
+                        tx_receiver,
+                        result_sender,
                         Arc::clone(&shutdown_notify)
                     );
-                    self.client_processors.insert(client, sender.clone());
+                    self.client_processors.insert(client, tx_sender.clone());
+                    self.result_receivers.insert(client, result_receiver);
+                    self.shutdown_notifiers.insert(client, shutdown_notify);
                     tokio::spawn(async move {client_processor.crank().await});
-                    sender.send(TxPayload { kind, tx, amount }).await?;
+                    tx_sender.send(TxPayload { kind, tx, amount }).await?;
                 }
             }
         }
+
+        // Drop senders so the clients don't wait for new transactions and
+        // notify shutdown.
+        for (client, _sender) in self.client_processors.drain() {
+            println!("notifying client {}", client);
+            self.shutdown_notifiers[&client].notify_one();
+        }
+
+        // Collect results
+        for (client, receiver) in self.result_receivers.iter_mut() {
+            while let Some(balances) = receiver.recv().await {
+                println!("client {}: {:?}", client, balances);
+            }
+        }
+
 
         Ok(())
     }
