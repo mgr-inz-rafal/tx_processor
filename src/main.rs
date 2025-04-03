@@ -95,18 +95,6 @@ impl Balances {
     }
 }
 
-struct State {
-    balances: HashMap<u16, Balances>,
-}
-
-impl State {
-    fn new() ->Self{
-        Self {
-            balances: HashMap::new(),
-        }
-    }
-}
-
 struct ClientProcessor {
     client: u16,
     balances: Balances,
