@@ -1,11 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use csv_async::AsyncReaderBuilder;
 use futures_util::{Stream, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use tokio::{fs::File, sync::mpsc};
+use tokio::{fs::File, sync::{mpsc, Notify}};
 use tokio_util::compat::TokioAsyncReadCompatExt;
+
+// TODO: Think about backpressure
+const CHANNEL_SIZE: usize = 1000;
 
 #[derive(Debug)]
 enum TxType {
@@ -45,16 +48,97 @@ struct Balances {
     locked: bool,
 }
 
-async fn client_stream_handler(mut receiver: mpsc::Receiver<TxPayload>) -> anyhow::Result<()> {
-    while let Some(record) = receiver.recv().await {
-        let TxPayload {
-            kind,
-            tx,
-            amount,
-        } = record;
-        println!("Processing: {:?}, tx: {}, amount: {}", kind, tx, amount);
+impl Balances {
+    fn new() -> Self {
+        Self {
+            available: Decimal::ZERO,
+            held: Decimal::ZERO,
+            total: Decimal::ZERO,
+            locked: false,
+        }
     }
-    Ok(())
+
+    fn apply(&mut self, tx: TxPayload) {
+        match tx.kind {
+            TxType::Deposit => self.deposit(tx.amount),
+            TxType::Withdrawal => self.withdrawal(tx.amount),
+            TxType::Dispute => self.dispute(tx.amount),
+            TxType::Resolve => self.resolve(tx.amount),
+            TxType::Chargeback => self.chargeback(tx.amount),
+        }
+    }
+
+    // TODO: Saturating or checked operations. Hmm, rather checked with proper error handling.
+    fn deposit(&mut self, amount: Decimal) {
+        self.available += amount;
+        self.total += amount;
+    }
+
+    fn withdrawal(&mut self, amount: Decimal) {
+        self.available -= amount;
+        self.total -= amount;
+    }
+
+    fn dispute(&mut self, amount: Decimal) {
+        self.held += amount;
+        self.available -= amount;
+    }
+
+    fn resolve(&mut self, amount: Decimal) {
+        self.held -= amount;
+        self.available += amount;
+    }
+
+    fn chargeback(&mut self, amount: Decimal) {
+        self.held -= amount;
+        self.locked = true;
+    }
+}
+
+struct State {
+    balances: HashMap<u16, Balances>,
+}
+
+impl State {
+    fn new() ->Self{
+        Self {
+            balances: HashMap::new(),
+        }
+    }
+}
+
+struct ClientProcessor {
+    client: u16,
+    balances: Balances,
+    tx_receiver: mpsc::Receiver<TxPayload>,
+    shutdown_notify: Arc<Notify>,
+}
+
+impl ClientProcessor {
+    fn new(client: u16, tx_receiver: mpsc::Receiver<TxPayload>, shutdown_notify: Arc<Notify>) -> Self {
+        Self {
+            client,
+            tx_receiver,
+            balances: Balances::new(),
+            shutdown_notify,
+        }
+    }
+
+    async fn crank(&mut self) {
+        loop {
+            tokio::select! {
+                Some(tx) = self.tx_receiver.recv() => {
+                    println!("Processing tx: {:?}", tx);
+                    self.balances.apply(tx);
+                },
+
+                _ = self.shutdown_notify.notified() => {
+                    println!("client {} shutting down", self.client);
+                    break;
+                },
+            }
+        }
+    }
 }
 
 struct StreamProcessor {
@@ -63,9 +147,11 @@ struct StreamProcessor {
 
 impl StreamProcessor {
     fn new() -> Self {
-        Self { client_processors: HashMap::new() }
+        Self {
+            client_processors: HashMap::new(),
+        }
     }
-    
+
     async fn process(
         &mut self,
         mut stream: impl Stream<Item = Result<Record, csv_async::Error>> + Unpin,
@@ -84,8 +170,15 @@ impl StreamProcessor {
                     sender.send(TxPayload { kind, tx, amount }).await?;
                 }
                 None => {
-                    let (sender, receiver) = mpsc::channel(100);
-                    tokio::spawn(client_stream_handler(receiver));
+                    let (sender, receiver) = mpsc::channel(CHANNEL_SIZE);
+                    let shutdown_notify = Arc::new(Notify::new());
+                    // TODO: Consider worker pool? When there are millions of clients the current approach could be problematic.
+                    let mut client_processor = ClientProcessor::new(
+                        client,
+                        receiver,
+                        Arc::clone(&shutdown_notify)
+                    );
+                    tokio::spawn(async move {client_processor.crank().await});
                     sender.send(TxPayload { kind, tx, amount }).await?;
                 }
             }
@@ -104,6 +197,7 @@ struct Record {
     amount: Decimal,
 }
 
+#[derive(Debug)]
 struct TxPayload {
     kind: TxType,
     tx: u32,
@@ -113,8 +207,8 @@ struct TxPayload {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let file = File::open("input.csv").await?.compat();
-        // Does it also have "to_lowercase()"?
-        let mut csv_reader = AsyncReaderBuilder::new()
+    // Does it also have "to_lowercase()"?
+    let mut csv_reader = AsyncReaderBuilder::new()
         .has_headers(true)
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
