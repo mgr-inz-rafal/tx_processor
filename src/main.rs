@@ -1,12 +1,17 @@
-use std::{collections::HashMap, sync::{atomic::AtomicU32, Arc}};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use csv_async::AsyncReaderBuilder;
 use futures_util::{Stream, StreamExt};
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use tokio::{fs::File, sync::{mpsc, oneshot, Notify}};
+use tokio::{fs::File, sync::mpsc};
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use std::sync::atomic;
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
@@ -103,48 +108,53 @@ struct ClientProcessor {
     balances: Balances,
     tx_receiver: mpsc::Receiver<TxPayload>,
     result_sender: mpsc::Sender<Balances>,
-    // TODO: Probably not needed, we should always process all transactions in this example.
-    shutdown_notify: Arc<Notify>,
 }
 
 impl ClientProcessor {
-    fn new(client: u16, tx_receiver: mpsc::Receiver<TxPayload>, result_sender: mpsc::Sender<Balances>,shutdown_notify: Arc<Notify>) -> Self {
+    fn new(
+        client: u16,
+        tx_receiver: mpsc::Receiver<TxPayload>,
+        result_sender: mpsc::Sender<Balances>,
+    ) -> Self {
         Self {
             client,
             tx_receiver,
             result_sender,
             balances: Balances::new(),
-            shutdown_notify,
         }
     }
 
-    async fn crank(&mut self) {
+    async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) {
         loop {
-            tokio::select! {
-                Some(tx) = self.tx_receiver.recv() => {
+            match self.tx_receiver.recv().await {
+                Some(tx) => {
                     println!("processing tx for client {}: {:?}", self.client, tx);
                     self.balances.apply(tx);
-                },
-
-                _ = self.shutdown_notify.notified() => {
+                    tx_counter.fetch_sub(1, Ordering::SeqCst);
+                }
+                None => {
                     println!("client {} shutting down", self.client);
                     break;
-                },
+                }
             }
         }
 
-        println!("client {} processed all transactions, sending results", self.client);
-        self.result_sender.send(self.balances.clone()).await.unwrap_or_else(|_| {
-            println!("failed to send result for client {}", self.client);
-        });
+        println!(
+            "client {} processed all transactions, sending results",
+            self.client
+        );
+        self.result_sender
+            .send(self.balances.clone())
+            .await
+            .unwrap_or_else(|_| {
+                println!("failed to send result for client {}", self.client);
+            });
     }
 }
 
 struct StreamProcessor {
     client_processors: HashMap<u16, mpsc::Sender<TxPayload>>,
     result_receivers: HashMap<u16, mpsc::Receiver<Balances>>,
-    // TODO: One for all clients?
-    shutdown_notifiers: HashMap<u16, Arc<Notify>>,
 }
 
 impl StreamProcessor {
@@ -152,7 +162,6 @@ impl StreamProcessor {
         Self {
             client_processors: HashMap::new(),
             result_receivers: HashMap::new(),
-            shutdown_notifiers: HashMap::new(),
         }
     }
 
@@ -160,6 +169,7 @@ impl StreamProcessor {
         &mut self,
         mut stream: impl Stream<Item = Result<Record, csv_async::Error>> + Unpin,
     ) -> anyhow::Result<()> {
+        let active_transactions = Arc::new(AtomicUsize::new(0));
         while let Some(record) = stream.next().await {
             let Record {
                 kind,
@@ -167,38 +177,44 @@ impl StreamProcessor {
                 tx,
                 amount,
             } = record?;
+            let active_tx_clone = Arc::clone(&active_transactions);
 
             let client_processor = self.client_processors.get(&client);
             match client_processor {
                 Some(sender) => {
+                    active_tx_clone.fetch_add(1, Ordering::SeqCst);
                     sender.send(TxPayload { kind, tx, amount }).await?;
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
                     let (result_sender, result_receiver) = mpsc::channel(RESULTS_CHANNEL_SIZE);
-                    let shutdown_notify = Arc::new(Notify::new());
                     // TODO: Consider worker pool? When there are millions of clients the current approach could be problematic.
-                    let mut client_processor = ClientProcessor::new(
-                        client,
-                        tx_receiver,
-                        result_sender,
-                        Arc::clone(&shutdown_notify)
-                    );
+                    let mut client_processor =
+                        ClientProcessor::new(client, tx_receiver, result_sender);
                     self.client_processors.insert(client, tx_sender.clone());
                     self.result_receivers.insert(client, result_receiver);
-                    self.shutdown_notifiers.insert(client, shutdown_notify);
-                    tokio::spawn(async move {client_processor.crank().await});
+                    tokio::spawn(async move {
+                        client_processor.crank(Arc::clone(&active_tx_clone)).await;
+                    });
+                    //tokio::spawn(async move {client_processor.crank().await});
+                    active_transactions.fetch_add(1, Ordering::SeqCst);
                     tx_sender.send(TxPayload { kind, tx, amount }).await?;
                 }
             }
         }
 
-        // Drop senders so the clients don't wait for new transactions and
-        // notify shutdown.
-        for (client, _sender) in self.client_processors.drain() {
-            println!("notifying client {}", client);
-            self.shutdown_notifiers[&client].notify_one();
+        // TODO: Busy waiting at the end to make sure all txs are processed.
+        // Could potentially be improved with a more elegant solution.
+        while active_transactions.load(Ordering::SeqCst) > 0 {
+            println!(
+                "waiting for {} transactions to finish",
+                active_transactions.load(Ordering::SeqCst)
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
+
+        // We only drop senders after all transactions are processed.
+        self.client_processors = HashMap::new();
 
         // Collect results
         for (client, receiver) in self.result_receivers.iter_mut() {
@@ -206,7 +222,6 @@ impl StreamProcessor {
                 println!("client {}: {:?}", client, balances);
             }
         }
-
 
         Ok(())
     }
