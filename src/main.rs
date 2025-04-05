@@ -16,6 +16,8 @@ mod client_processor;
 mod db;
 mod error;
 mod stream_processor;
+#[cfg(test)]
+mod tests;
 mod traits;
 mod transaction;
 
@@ -61,15 +63,13 @@ async fn main() -> anyhow::Result<()> {
         .has_headers(true)
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
-
-    let mut input_stream = csv_reader.deserialize::<InputRecord<Decimal>>();
+    let mut input = csv_reader.deserialize::<InputRecord<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
-    let mut result_stream = stream_processor.process(&mut input_stream).await; // ?;
+    let mut results = stream_processor.process(&mut input).await; // ?;
 
-    let output = tokio::io::stdout().compat_write();
-    let mut writer = AsyncSerializer::from_writer(output);
-    while let Some(client_state) = result_stream.next().await {
+    let mut writer = AsyncSerializer::from_writer(tokio::io::stdout().compat_write());
+    while let Some(client_state) = results.next().await {
         let record: OutputRecord<Decimal> = client_state.into();
         writer.serialize(&record).await?;
     }
@@ -88,8 +88,6 @@ async fn main() -> anyhow::Result<()> {
 // Remove all prints and dbg! so the stdout is clean
 // Move to lib, leave just main in main.rs
 
-// Share in a public repo?
-
 // Tests:
 // Test with garbage input
 // 1. withdrawal - no existing client
@@ -100,3 +98,6 @@ async fn main() -> anyhow::Result<()> {
 // 2. Locked account can not process any transactions
 // 3. There is a limited time window for the dispute to be raised
 // 4. Enough resources to process all clients simultaneously
+// 5. Only deposit and withdrawal transactions can be disputed
+// 6. Tx ids are unique
+// 7. Dispute can be resolved or charged back

@@ -108,16 +108,11 @@ where
                     tx_counter.fetch_sub(1, Ordering::SeqCst);
                 }
                 None => {
-                    println!("client {} shutting down", self.client);
                     break;
                 }
             }
         }
 
-        println!(
-            "client {} processed all transactions, sending results",
-            self.client
-        );
         self.result_sender
             .send(self.balances.clone())
             .await
