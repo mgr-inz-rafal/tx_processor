@@ -16,6 +16,11 @@ use crate::{
     transaction::{TxPayload, TxType},
 };
 
+enum TxProcessingOutcome {
+    LockAccount,
+    NoAction,
+}
+
 pub(super) struct ClientProcessor<D, V>
 where
     D: ValueCache<V>,
@@ -23,6 +28,7 @@ where
 {
     client: u16,
     balances: Balances<V>,
+    locked: bool,
     db: D,
     // Not abstracted, assuming there will be a limited number of active disputes
     // compared to the total number of transactions.
@@ -47,12 +53,13 @@ where
             balances: Balances::new(),
             disputed: HashMap::new(),
             db,
+            locked: false,
             tx_receiver,
             result_sender,
         }
     }
 
-    fn process_tx(&mut self, tx: TxPayload<V>) -> Result<(), Error> {
+    fn process_tx(&mut self, tx: TxPayload<V>) -> Result<TxProcessingOutcome, Error> {
         match tx.kind() {
             TxType::Deposit => {
                 let amount = tx
@@ -81,18 +88,23 @@ where
                 if let Some(amount) = self.disputed.get(&tx.tx()) {
                     self.balances.chargeback(*amount)?;
                     self.disputed.remove(&tx.tx());
+                    return Ok(TxProcessingOutcome::LockAccount);
                 };
             }
         }
 
-        Ok(())
+        Ok(TxProcessingOutcome::NoAction)
     }
 
     pub(super) async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) -> Result<(), Error> {
         loop {
             match self.tx_receiver.recv().await {
                 Some(tx) => {
-                    self.process_tx(tx)?;
+                    if !self.locked {
+                        if let TxProcessingOutcome::LockAccount = self.process_tx(tx)? {
+                            self.locked = true;
+                        }
+                    } 
                     tx_counter.fetch_sub(1, Ordering::SeqCst);
                 }
                 None => {
