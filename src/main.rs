@@ -70,7 +70,6 @@ async fn main() -> anyhow::Result<()> {
     let file = File::open(filename)
         .await?
         .compat();
-    // Does it also have "to_lowercase()"?
     let mut csv_reader = AsyncReaderBuilder::new()
         .has_headers(true)
         .trim(csv_async::Trim::All)
@@ -115,6 +114,7 @@ async fn main() -> anyhow::Result<()> {
 // 7. Dispute can be resolved or charged back
 // 8. User can dispute a transaction again after the dispute is resolved
 // 9. Transactions that lead to incorrect state (arithmetic overflow, etc.) are silently ignored (not to accidentally pollute stdout). At the end of the day, these would deserve a proper handling.
+// 10. Strings representing transaction names are case insensitive (e.g. "Deposit" and "deposit" are the same)
 
 // Scenarios:
 // 1. Multiple chargebacks, etc.
