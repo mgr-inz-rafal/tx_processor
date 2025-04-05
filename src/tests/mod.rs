@@ -33,7 +33,7 @@ fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec
 }
 
 const SCENARIOS_PATH: &str = "./src/tests/scenarios";
-const EXPECTED_SCENARIO_COUNT: usize = 17;
+const EXPECTED_SCENARIO_COUNT: usize = 20;
 
 #[tokio::test]
 async fn scenarios() {

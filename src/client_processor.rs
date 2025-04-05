@@ -99,10 +99,10 @@ where
                 self.balances.withdrawal(amount)?;
             }
             TxType::Dispute => {
+                if self.disputed.contains_key(&tx.tx()) {
+                    return Ok(TxProcessingOutcome::NoAction);
+                }
                 if let Some(amount) = self.db.get(&tx.tx()) {
-                    if self.disputed.contains_key(&tx.tx()) {
-                        return Ok(TxProcessingOutcome::NoAction);
-                    }
                     self.balances.dispute(*amount)?;
                     self.disputed.insert(tx.tx(), *amount);
                 };

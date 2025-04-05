@@ -104,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
 // 5. Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
 // 6. Tx ids are unique
 // 7. Dispute can be resolved or charged back
+// 8. User can dispute a transaction again after the dispute is resolved
 
 // Scenarios:
 // 1. Multiple chargebacks, etc.
