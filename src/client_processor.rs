@@ -21,6 +21,32 @@ enum TxProcessingOutcome {
     NoAction,
 }
 
+pub(super) struct ClientState<V>
+where
+    V: BalanceUpdater + Copy,
+{
+    client: u16,
+    locked: bool,
+    balances: Balances<V>,
+}
+
+impl<V> ClientState<V>
+where
+    V: BalanceUpdater + Copy,
+{
+    pub(super) fn balances(&self) -> &Balances<V> {
+        &self.balances
+    }
+
+    pub(super) fn client(&self) -> u16 {
+        self.client
+    }
+
+    pub(super) fn locked(&self) -> bool {
+        self.locked
+    }
+}
+
 pub(super) struct ClientProcessor<D, V>
 where
     D: ValueCache<V>,
@@ -34,7 +60,7 @@ where
     // compared to the total number of transactions.
     disputed: HashMap<u32, V>,
     tx_receiver: mpsc::Receiver<TxPayload<V>>,
-    result_sender: mpsc::Sender<Balances<V>>,
+    result_sender: mpsc::Sender<ClientState<V>>,
 }
 
 impl<D, V> ClientProcessor<D, V>
@@ -46,7 +72,7 @@ where
         client: u16,
         db: D,
         tx_receiver: mpsc::Receiver<TxPayload<V>>,
-        result_sender: mpsc::Sender<Balances<V>>,
+        result_sender: mpsc::Sender<ClientState<V>>,
     ) -> Self {
         Self {
             client,
@@ -117,7 +143,13 @@ where
         }
 
         self.result_sender
-            .send(self.balances.clone())
+            .send(
+                ClientState {
+                    client: self.client,
+                    locked: self.locked,
+                    balances: self.balances.clone(),
+                }
+            )
             .await
             .unwrap_or_else(|_| {
                 println!("failed to send result for client {}", self.client);

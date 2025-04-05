@@ -10,7 +10,7 @@ use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::{Balances, ClientProcessor, InputRecord, TxPayload, in_mem, traits::BalanceUpdater};
+use crate::{client_processor::ClientState, in_mem, traits::BalanceUpdater, Balances, ClientProcessor, InputRecord, TxPayload};
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
@@ -27,38 +27,12 @@ where
     Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<V>>),
 }
 
-pub(super) struct ClientState<V>
-where
-    V: BalanceUpdater + Copy,
-{
-    client: u16,
-    locked: bool,
-    balances: Balances<V>,
-}
-
-impl<V> ClientState<V>
-where
-    V: BalanceUpdater + Copy,
-{
-    pub(super) fn balances(&self) -> &Balances<V> {
-        &self.balances
-    }
-
-    pub(super) fn client(&self) -> u16 {
-        self.client
-    }
-
-    pub(super) fn locked(&self) -> bool {
-        self.locked
-    }
-}
-
 pub(super) struct StreamProcessor<V>
 where
     V: BalanceUpdater + Copy + Send,
 {
     client_processors: HashMap<u16, mpsc::Sender<TxPayload<V>>>,
-    result_receivers: HashMap<u16, mpsc::Receiver<Balances<V>>>,
+    result_receivers: HashMap<u16, mpsc::Receiver<ClientState<V>>>,
 }
 
 impl<V> StreamProcessor<V>
@@ -129,25 +103,10 @@ where
         self.client_processors = HashMap::new();
 
         stream::iter(self.result_receivers.iter_mut())
-            .then(|(client, receiver)| async move {
-                let x = receiver.recv().await.unwrap();
-                ClientState {
-                    client: *client,
-                    locked: false,
-                    balances: x,
-                }
+            .then(|(_, receiver)| async move {
+                let client_state = receiver.recv().await.unwrap();
+                client_state
             })
             .boxed()
-
-        // Collect results
-        /*
-        for (client, receiver) in self.result_receivers.iter_mut() {
-            while let Some(balances) = receiver.recv().await {
-                results.insert(*client, balances);
-            }
-        }
-        */
-
-        //todo!()
     }
 }

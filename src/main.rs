@@ -1,11 +1,11 @@
 use balances::Balances;
-use client_processor::ClientProcessor;
+use client_processor::{ClientProcessor, ClientState};
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use stream_processor::{ClientState, StreamProcessor};
+use stream_processor::StreamProcessor;
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use traits::BalanceUpdater;
@@ -50,7 +50,7 @@ where
             available: balances.available(),
             held: balances.held(),
             total: balances.total(),
-            locked: false,
+            locked: client_state.locked(),
         }
     }
 }
@@ -101,3 +101,7 @@ async fn main() -> anyhow::Result<()> {
 // 5. Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
 // 6. Tx ids are unique
 // 7. Dispute can be resolved or charged back
+
+// Scenarios:
+// 1. Multiple chargebacks, etc.
+// 2. Locked account can not process any transactions
