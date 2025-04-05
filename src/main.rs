@@ -35,7 +35,7 @@ struct OutputRecord<V> {
     client: u16,
     available: V,
     held: V,
-    total: V, // TODO: No need to process this? This is always available + held
+    total: V,
     locked: bool,
 }
 
@@ -49,7 +49,10 @@ where
             client: client_state.client(),
             available: balances.available(),
             held: balances.held(),
-            total: balances.total(),
+            total: balances
+                .available()
+                .checked_add(balances.held())
+                .expect("overflow"),
             locked: client_state.locked(),
         }
     }

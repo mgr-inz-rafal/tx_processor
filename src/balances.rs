@@ -15,7 +15,6 @@ where
 {
     available: V,
     held: V,
-    total: V,
 }
 
 impl<V> Balances<V>
@@ -26,17 +25,12 @@ where
         Self {
             available: V::new(),
             held: V::new(),
-            total: V::new(),
         }
     }
 
     #[cfg(test)]
-    fn new_with_values(available: V, held: V, total: V) -> Self {
-        Self {
-            available,
-            held,
-            total,
-        }
+    fn new_with_values(available: V, held: V) -> Self {
+        Self { available, held }
     }
 
     // TODO: Saturating or checked operations. Hmm, rather checked with proper error handling.
@@ -45,20 +39,12 @@ where
             .available
             .checked_add(amount)
             .ok_or(Error::ArithmeticOverflow)?;
-        self.total = self
-            .total
-            .checked_add(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 
     pub(super) fn withdrawal(&mut self, amount: V) -> Result<(), Error> {
         self.available = self
             .available
-            .checked_sub(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
-        self.total = self
-            .total
             .checked_sub(amount)
             .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
@@ -93,10 +79,6 @@ where
             .held
             .checked_sub(amount)
             .ok_or(Error::ArithmeticOverflow)?;
-        self.total = self
-            .total
-            .checked_sub(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 
@@ -107,10 +89,6 @@ where
     pub(super) fn held(&self) -> V {
         self.held
     }
-
-    pub(super) fn total(&self) -> V {
-        self.total
-    }
 }
 
 #[cfg(test)]
@@ -119,8 +97,8 @@ mod tests {
 
     use crate::Balances;
 
-    fn new_balance(available: Decimal, held: Decimal, total: Decimal) -> Balances<Decimal> {
-        Balances::new_with_values(available, held, total)
+    fn new_balance(available: Decimal, held: Decimal) -> Balances<Decimal> {
+        Balances::new_with_values(available, held)
     }
 
     mod update {
@@ -128,27 +106,25 @@ mod tests {
 
         #[test]
         fn deposit() {
-            let mut balance = new_balance(100.into(), 200.into(), 300.into());
+            let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.deposit(1.into()).is_ok());
 
             assert_eq!(balance.available, 101.into());
-            assert_eq!(balance.total, 301.into());
         }
 
         #[test]
         fn withdrawal() {
-            let mut balance = new_balance(100.into(), 200.into(), 300.into());
+            let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.withdrawal(1.into()).is_ok());
 
             assert_eq!(balance.available, 99.into());
-            assert_eq!(balance.total, 299.into());
         }
 
         #[test]
         fn dispute() {
-            let mut balance = new_balance(100.into(), 200.into(), 300.into());
+            let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.dispute(1.into()).is_ok());
 
@@ -158,7 +134,7 @@ mod tests {
 
         #[test]
         fn resolve() {
-            let mut balance = new_balance(100.into(), 200.into(), 300.into());
+            let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.resolve(1.into()).is_ok());
 
@@ -168,12 +144,11 @@ mod tests {
 
         #[test]
         fn chargeback() {
-            let mut balance = new_balance(100.into(), 200.into(), 300.into());
+            let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.chargeback(1.into()).is_ok());
 
             assert_eq!(balance.held, 199.into());
-            assert_eq!(balance.total, 299.into());
         }
     }
 
@@ -184,13 +159,7 @@ mod tests {
 
         #[test]
         fn deposit() {
-            let mut balance = new_balance(Decimal::MAX, 100.into(), 100.into());
-            assert!(matches!(
-                balance.deposit(1.into()),
-                Err(Error::ArithmeticOverflow)
-            ));
-
-            let mut balance = new_balance(100.into(), 100.into(), Decimal::MAX);
+            let mut balance = new_balance(Decimal::MAX, 100.into());
             assert!(matches!(
                 balance.deposit(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -199,13 +168,7 @@ mod tests {
 
         #[test]
         fn withdrawal() {
-            let mut balance = new_balance(Decimal::MIN, 100.into(), 100.into());
-            assert!(matches!(
-                balance.withdrawal(1.into()),
-                Err(Error::ArithmeticOverflow)
-            ));
-
-            let mut balance = new_balance(100.into(), 100.into(), Decimal::MIN);
+            let mut balance = new_balance(Decimal::MIN, 100.into());
             assert!(matches!(
                 balance.withdrawal(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -214,13 +177,13 @@ mod tests {
 
         #[test]
         fn dispute() {
-            let mut balance = new_balance(100.into(), Decimal::MAX, 100.into());
+            let mut balance = new_balance(100.into(), Decimal::MAX);
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(Decimal::MIN, 100.into(), 100.into());
+            let mut balance = new_balance(Decimal::MIN, 100.into());
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -229,13 +192,13 @@ mod tests {
 
         #[test]
         fn resolve() {
-            let mut balance = new_balance(100.into(), Decimal::MIN, 100.into());
+            let mut balance = new_balance(100.into(), Decimal::MIN);
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(Decimal::MAX, 100.into(), 100.into());
+            let mut balance = new_balance(Decimal::MAX, 100.into());
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -244,13 +207,7 @@ mod tests {
 
         #[test]
         fn chargeback() {
-            let mut balance = new_balance(100.into(), Decimal::MIN, 100.into());
-            assert!(matches!(
-                balance.chargeback(1.into()),
-                Err(Error::ArithmeticOverflow)
-            ));
-
-            let mut balance = new_balance(100.into(), 100.into(), Decimal::MIN);
+            let mut balance = new_balance(100.into(), Decimal::MIN);
             assert!(matches!(
                 balance.chargeback(1.into()),
                 Err(Error::ArithmeticOverflow)
