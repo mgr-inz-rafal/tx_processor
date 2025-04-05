@@ -34,7 +34,15 @@ where
         }
     }
 
-    // TODO: Only process when not locked.
+    #[cfg(test)]
+    fn new_with_values(available: V, held: V, total: V, locked: bool) -> Self {
+        Self {
+            available,
+            held,
+            total,
+            locked,
+        }
+    }
 
     // TODO: Saturating or checked operations. Hmm, rather checked with proper error handling.
     pub(super) fn deposit(&mut self, amount: V) -> Result<(), Error> {
@@ -74,9 +82,55 @@ where
     }
 
     pub(super) fn chargeback(&mut self, amount: V) -> Result<(), Error> {
+        if self.locked {
+            return Err(Error::Locked);
+        }
         self.held = self.held.checked_sub(amount).ok_or(Error::Overflow)?;
         self.total = self.total.checked_sub(amount).ok_or(Error::Overflow)?;
         self.locked = true;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod locking {
+        use rust_decimal::Decimal;
+
+        use crate::{balances::Error, Balances};
+
+        fn new_locked_balance() -> Balances<Decimal> {
+            Balances::new_with_values(0.into(), 0.into(), 0.into(), true)
+        }
+
+        #[test]
+        fn deposit() {
+            let mut balance = new_locked_balance();
+            assert!(matches!(balance.deposit(1.into()), Err(Error::Locked)));
+        }
+
+        #[test]
+        fn withdrawal() {
+            let mut balance = new_locked_balance();
+            assert!(matches!(balance.withdrawal(1.into()), Err(Error::Locked)));
+        }
+
+        #[test]
+        fn dispute() {
+            let mut balance = new_locked_balance();
+            assert!(matches!(balance.dispute(1.into()), Err(Error::Locked)));
+        }
+
+        #[test]
+        fn resolve() {
+            let mut balance = new_locked_balance();
+            assert!(matches!(balance.resolve(1.into()), Err(Error::Locked)));
+        }
+
+        #[test]
+        fn chargeback() {
+            let mut balance = new_locked_balance();
+            assert!(matches!(balance.chargeback(1.into()), Err(Error::Locked)));
+        }
     }
 }
