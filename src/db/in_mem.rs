@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
-use rust_decimal::Decimal;
-
 use super::ValueCache;
 
 #[derive(Debug, Clone)]
-pub(crate) struct AmountCache {
-    txs: HashMap<u32, Decimal>,
+pub(crate) struct AmountCache<V> {
+    txs: HashMap<u32, V>,
 }
 
-impl AmountCache {
+impl<V> AmountCache<V> {
     pub(crate) fn new() -> Self {
         Self {
             txs: HashMap::new(),
@@ -17,17 +15,17 @@ impl AmountCache {
     }
 }
 
-impl ValueCache for AmountCache {
-    fn get(&self, id: &u32) -> Option<&Decimal> {
+impl<V> ValueCache<V> for AmountCache<V> {
+    fn get(&self, id: &u32) -> Option<&V> {
         self.txs.get(id)
     }
 
     // TODO: Duplicated ID should yield an error.
-    fn insert(&mut self, id: u32, amount: Decimal) {
+    fn insert(&mut self, id: u32, amount: V) {
         self.txs.insert(id, amount);
     }
 
-    fn remove(&mut self, id: u32) -> Option<Decimal> {
+    fn remove(&mut self, id: u32) -> Option<V> {
         self.txs.remove(&id)
     }
 }

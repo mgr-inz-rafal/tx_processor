@@ -14,15 +14,16 @@ mod client_processor;
 mod db;
 mod error;
 mod stream_processor;
+mod traits;
 mod transaction;
 
 #[derive(Debug, Deserialize)]
-struct Record {
+struct Record<V> {
     #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
     kind: TxType,
     client: u16,
     tx: u32,
-    amount: Option<Decimal>,
+    amount: Option<V>,
 }
 
 #[tokio::main]
@@ -34,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
 
-    let mut input_stream = csv_reader.deserialize::<Record>();
+    let mut input_stream = csv_reader.deserialize::<Record<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
     stream_processor.process(&mut input_stream).await?;

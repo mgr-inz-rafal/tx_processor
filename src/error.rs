@@ -1,4 +1,11 @@
-// TODO: More granular errors for different kind of failures
+use thiserror::Error;
+
+use crate::balances;
+
+#[derive(Error, Debug)]
 pub(super) enum Error {
+    #[error("Invalid transaction: {id}")]
     InvalidTransaction { id: u32 },
+    #[error(transparent)]
+    Balances(#[from] balances::Error),
 }

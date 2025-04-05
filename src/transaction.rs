@@ -1,4 +1,3 @@
-use rust_decimal::Decimal;
 use serde::Deserialize;
 
 #[derive(Debug, Copy, Clone)]
@@ -33,18 +32,24 @@ impl TxType {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct TxPayload {
+pub(super) struct TxPayload<V>
+where
+    V: Copy,
+{
     kind: TxType,
     tx: u32,
-    amount: Option<Decimal>,
+    amount: Option<V>,
 }
 
-impl TxPayload {
-    pub(super) fn new(kind: TxType, tx: u32, amount: Option<Decimal>) -> Self {
+impl<V> TxPayload<V>
+where
+    V: Copy,
+{
+    pub(super) fn new(kind: TxType, tx: u32, amount: Option<V>) -> Self {
         Self { kind, tx, amount }
     }
 
-    pub(super) fn amount(&self) -> Option<Decimal> {
+    pub(super) fn amount(&self) -> Option<V> {
         self.amount
     }
 

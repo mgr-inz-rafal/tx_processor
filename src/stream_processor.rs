@@ -7,20 +7,38 @@ use std::{
 };
 
 use futures_util::{Stream, StreamExt};
+use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::{Balances, ClientProcessor, Record, TxPayload, in_mem};
+use crate::{Balances, ClientProcessor, Record, TxPayload, in_mem, traits::BalanceUpdater};
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
 const RESULTS_CHANNEL_SIZE: usize = 100;
 
-pub(super) struct StreamProcessor {
-    client_processors: HashMap<u16, mpsc::Sender<TxPayload>>,
-    result_receivers: HashMap<u16, mpsc::Receiver<Balances>>,
+#[derive(Debug, Error)]
+pub(super) enum Error<V>
+where
+    V: Copy,
+{
+    #[error(transparent)]
+    Csv(#[from] csv_async::Error),
+    #[error(transparent)]
+    Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<V>>),
 }
 
-impl StreamProcessor {
+pub(super) struct StreamProcessor<V>
+where
+    V: BalanceUpdater + Copy + Send,
+{
+    client_processors: HashMap<u16, mpsc::Sender<TxPayload<V>>>,
+    result_receivers: HashMap<u16, mpsc::Receiver<Balances<V>>>,
+}
+
+impl<V> StreamProcessor<V>
+where
+    V: BalanceUpdater + Copy + Send + 'static,
+{
     pub(super) fn new() -> Self {
         Self {
             client_processors: HashMap::new(),
@@ -30,8 +48,8 @@ impl StreamProcessor {
 
     pub(super) async fn process(
         &mut self,
-        mut stream: impl Stream<Item = Result<Record, csv_async::Error>> + Unpin,
-    ) -> anyhow::Result<()> {
+        mut stream: impl Stream<Item = Result<Record<V>, csv_async::Error>> + Unpin,
+    ) -> Result<(), Error<V>> {
         let active_transactions = Arc::new(AtomicUsize::new(0));
         while let Some(record) = stream.next().await {
             let Record {
@@ -83,8 +101,8 @@ impl StreamProcessor {
 
         // Collect results
         for (client, receiver) in self.result_receivers.iter_mut() {
-            while let Some(balances) = receiver.recv().await {
-                println!("client {}: {:?}", client, balances);
+            while let Some(_balances) = receiver.recv().await {
+                println!("client {} sent results", client);
             }
         }
 
