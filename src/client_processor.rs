@@ -126,30 +126,21 @@ where
     }
 
     pub(super) async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) -> Result<(), Error> {
-        loop {
-            match self.tx_receiver.recv().await {
-                Some(tx) => {
-                    if !self.locked {
-                        if let TxProcessingOutcome::LockAccount = self.process_tx(tx)? {
-                            self.locked = true;
-                        }
-                    }
-                    tx_counter.fetch_sub(1, Ordering::SeqCst);
-                }
-                None => {
-                    break;
+        while let Some(tx) = self.tx_receiver.recv().await {
+            if !self.locked {
+                if let TxProcessingOutcome::LockAccount = self.process_tx(tx)? {
+                    self.locked = true;
                 }
             }
+            tx_counter.fetch_sub(1, Ordering::SeqCst);
         }
 
         self.result_sender
-            .send(
-                ClientState {
-                    client: self.client,
-                    locked: self.locked,
-                    balances: self.balances.clone(),
-                }
-            )
+            .send(ClientState {
+                client: self.client,
+                locked: self.locked,
+                balances: self.balances.clone(),
+            })
             .await
             .unwrap_or_else(|_| {
                 println!("failed to send result for client {}", self.client);

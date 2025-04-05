@@ -1,11 +1,13 @@
-use std::{
-    fs::{self, File}, io::{BufReader, Cursor, Read}, path::{Path, PathBuf}
-};
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use csv_diff::{csv::Csv, csv_diff::CsvByteDiff};
-use futures_util::{ StreamExt};
+use futures_util::StreamExt;
 use rust_decimal::Decimal;
-use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+use std::{
+    fs::{self, File},
+    io::{BufReader, Cursor, Read},
+    path::{Path, PathBuf},
+};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use crate::{InputRecord, OutputRecord, StreamProcessor};
 
@@ -68,8 +70,7 @@ async fn scenarios() {
         dbg!(&actual);
 
         let expected_path = path.with_extension("out");
-        let expected_file = File::open(&expected_path)
-            .expect("should read expected file");
+        let expected_file = File::open(&expected_path).expect("should read expected file");
         let expected_file_reader: Box<dyn Read + Send> = Box::new(BufReader::new(expected_file));
         let expected = Csv::with_reader(expected_file_reader);
 
@@ -78,13 +79,9 @@ async fn scenarios() {
         let actual = Csv::with_reader(actual_cursor_reader);
 
         let csv_diff = CsvByteDiff::new().expect("should create csv diff");
-        let diff_iterator = csv_diff.diff(
-            expected,
-            actual,
-        );
+        let diff_iterator = csv_diff.diff(expected, actual);
 
-        let diffs = diff_iterator
-            .collect::<Vec<_>>();
+        let diffs = diff_iterator.collect::<Vec<_>>();
         assert!(diffs.is_empty(), "mismatch in scenario: {:?}", path);
 
         count += 1;

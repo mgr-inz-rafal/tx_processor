@@ -10,7 +10,10 @@ use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::{client_processor::ClientState, in_mem, traits::BalanceUpdater, Balances, ClientProcessor, InputRecord, TxPayload};
+use crate::{
+    ClientProcessor, InputRecord, TxPayload, client_processor::ClientState, in_mem,
+    traits::BalanceUpdater,
+};
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
@@ -103,10 +106,7 @@ where
         self.client_processors = HashMap::new();
 
         stream::iter(self.result_receivers.iter_mut())
-            .then(|(_, receiver)| async move {
-                let client_state = receiver.recv().await.unwrap();
-                client_state
-            })
+            .then(|(_, receiver)| async move { receiver.recv().await.unwrap() })
             .boxed()
     }
 }
