@@ -33,11 +33,16 @@ where
         Self { available, held }
     }
 
-    // TODO: Saturating or checked operations. Hmm, rather checked with proper error handling.
+    fn transfer(from: V, to: V, amount: V) -> Option<(V, V)> {
+        let new_from = from.sub(amount)?;
+        let new_to = to.add(amount)?;
+        Some((new_from, new_to))
+    }
+
     pub(super) fn deposit(&mut self, amount: V) -> Result<(), Error> {
         self.available = self
             .available
-            .checked_add(amount)
+            .add(amount)
             .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
@@ -45,40 +50,31 @@ where
     pub(super) fn withdrawal(&mut self, amount: V) -> Result<(), Error> {
         self.available = self
             .available
-            .checked_sub(amount)
+            .sub(amount)
             .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 
     pub(super) fn dispute(&mut self, amount: V) -> Result<(), Error> {
-        self.held = self
-            .held
-            .checked_add(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
-        self.available = self
-            .available
-            .checked_sub(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
+        let (new_available, new_held) =
+            Self::transfer(self.available, self.held, amount).ok_or(Error::ArithmeticOverflow)?;
+
+        self.held = new_held;
+        self.available = new_available;
         Ok(())
     }
 
     pub(super) fn resolve(&mut self, amount: V) -> Result<(), Error> {
-        self.held = self
-            .held
-            .checked_sub(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
-        self.available = self
-            .available
-            .checked_add(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
+        let (new_held, new_available) =
+            Self::transfer(self.held, self.available, amount).ok_or(Error::ArithmeticOverflow)?;
+
+        self.held = new_held;
+        self.available = new_available;
         Ok(())
     }
 
     pub(super) fn chargeback(&mut self, amount: V) -> Result<(), Error> {
-        self.held = self
-            .held
-            .checked_sub(amount)
-            .ok_or(Error::ArithmeticOverflow)?;
+        self.held = self.held.sub(amount).ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 

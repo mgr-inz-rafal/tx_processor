@@ -49,10 +49,7 @@ where
             client: client_state.client(),
             available: balances.available(),
             held: balances.held(),
-            total: balances
-                .available()
-                .checked_add(balances.held())
-                .expect("overflow"),
+            total: balances.available().add(balances.held()).expect("overflow"),
             locked: client_state.locked(),
         }
     }
@@ -60,7 +57,9 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let file = File::open("input.csv").await?.compat();
+    let file = File::open("./src/tests/scenarios/deposit_withdrawal_dispute.in")
+        .await?
+        .compat();
     // Does it also have "to_lowercase()"?
     let mut csv_reader = AsyncReaderBuilder::new()
         .has_headers(true)
@@ -105,6 +104,7 @@ async fn main() -> anyhow::Result<()> {
 // 6. Tx ids are unique
 // 7. Dispute can be resolved or charged back
 // 8. User can dispute a transaction again after the dispute is resolved
+// 9. Transactions that lead to incorrect state (arithmetic overflow, etc.) are silently ignored (not to accidentally pollute stdout). At the end of the day, these would deserve a proper handling.
 
 // Scenarios:
 // 1. Multiple chargebacks, etc.

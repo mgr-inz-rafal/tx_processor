@@ -38,6 +38,7 @@ const EXPECTED_SCENARIO_COUNT: usize = 20;
 #[tokio::test]
 async fn scenarios() {
     // TODO: This test is a bit messy, but good for now.
+    // TODO: Scenarios could be run in parallel.
     let mut count = 0;
     for path in files_matching_pattern_from_dir(SCENARIOS_PATH, "in") {
         let file = tokio::fs::File::open(&path)

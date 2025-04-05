@@ -128,8 +128,17 @@ where
     pub(super) async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) -> Result<(), Error> {
         while let Some(tx) = self.tx_receiver.recv().await {
             if !self.locked {
-                if let TxProcessingOutcome::LockAccount = self.process_tx(tx)? {
-                    self.locked = true;
+                let tx_process_result = self.process_tx(tx);
+                match tx_process_result {
+                    Ok(outcome) => {
+                        if let TxProcessingOutcome::LockAccount = outcome {
+                            self.locked = true;
+                        }
+                    }
+                    Err(_e) => {
+                        // TODO: Proper error handling
+                        // tracing::error!("Error processing transaction: {:?}", _e);
+                    }
                 }
             }
             tx_counter.fetch_sub(1, Ordering::SeqCst);

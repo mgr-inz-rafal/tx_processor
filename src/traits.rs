@@ -5,8 +5,8 @@ where
     Self: Sized,
 {
     fn new() -> Self;
-    fn checked_add(self, other: Self) -> Option<Self>;
-    fn checked_sub(self, other: Self) -> Option<Self>;
+    fn add(self, other: Self) -> Option<Self>;
+    fn sub(self, other: Self) -> Option<Self>;
 }
 
 impl BalanceUpdater for Decimal {
@@ -14,11 +14,27 @@ impl BalanceUpdater for Decimal {
         Decimal::ZERO
     }
 
-    fn checked_add(self, other: Self) -> Option<Self> {
+    fn add(self, other: Self) -> Option<Self> {
         self.checked_add(other)
     }
 
-    fn checked_sub(self, other: Self) -> Option<Self> {
-        self.checked_sub(other)
+    fn sub(self, other: Self) -> Option<Self> {
+        let new_value = self.checked_sub(other);
+        new_value.and_then(|v| v.is_sign_positive().then_some(v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_balance_updater() {
+        let a = Decimal::new(10, 0);
+        let b = Decimal::new(5, 0);
+
+        assert_eq!(a.add(b), Some(Decimal::new(15, 0)));
+        assert_eq!(a.sub(b), Some(Decimal::new(5, 0)));
+        assert_eq!(b.sub(a), None);
     }
 }
