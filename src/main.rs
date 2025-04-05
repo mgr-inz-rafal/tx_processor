@@ -17,7 +17,7 @@ use tokio_util::compat::TokioAsyncReadCompatExt;
 const TX_CHANNEL_SIZE: usize = 1000;
 const RESULTS_CHANNEL_SIZE: usize = 100;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum TxType {
     Deposit,
     Withdrawal,
@@ -48,6 +48,38 @@ impl TxType {
     }
 }
 
+// TODO: More granular errors for different kind of failures
+enum Error {
+    InvalidTransaction { id: u32 },
+}
+
+// Maybe not all txs type must be stored, definitely "Deposit" has to be here.
+trait TxValueDb {
+    fn get(&self, id: &u32) -> Option<&Decimal>;
+    fn insert(&mut self, id: u32, amount: Decimal);
+    fn remove(&mut self, id: u32) -> Option<Decimal>;
+}
+
+#[derive(Debug, Clone)]
+struct InMemTxCache {
+    txs: HashMap<u32, Decimal>,
+}
+
+impl TxValueDb for InMemTxCache {
+    fn get(&self, id: &u32) -> Option<&Decimal> {
+        self.txs.get(id)
+    }
+
+    // TODO: Duplicated ID should yield an error.
+    fn insert(&mut self, id: u32, amount: Decimal) {
+        self.txs.insert(id, amount);
+    }
+
+    fn remove(&mut self, id: u32) -> Option<Decimal> {
+        self.txs.remove(&id)
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Balances {
     available: Decimal,
@@ -63,16 +95,6 @@ impl Balances {
             held: Decimal::ZERO,
             total: Decimal::ZERO,
             locked: false,
-        }
-    }
-
-    fn apply(&mut self, tx: TxPayload) {
-        match tx.kind {
-            TxType::Deposit => self.deposit(tx.amount),
-            TxType::Withdrawal => self.withdrawal(tx.amount),
-            TxType::Dispute => self.dispute(tx.amount),
-            TxType::Resolve => self.resolve(tx.amount),
-            TxType::Chargeback => self.chargeback(tx.amount),
         }
     }
 
@@ -99,37 +121,86 @@ impl Balances {
 
     fn chargeback(&mut self, amount: Decimal) {
         self.held -= amount;
+        self.total -= amount;
         self.locked = true;
     }
 }
 
-struct ClientProcessor {
+struct ClientProcessor<D>
+where
+    D: TxValueDb + core::fmt::Debug,
+{
     client: u16,
     balances: Balances,
+    db: D,
+    // Not abstracted, assuming there will be a limited number of active disputes
+    // compared to the total number of transactions.
+    disputed: HashMap<u32, Decimal>,
     tx_receiver: mpsc::Receiver<TxPayload>,
     result_sender: mpsc::Sender<Balances>,
 }
 
-impl ClientProcessor {
+impl<D> ClientProcessor<D>
+where
+    D: TxValueDb + core::fmt::Debug,
+{
     fn new(
         client: u16,
+        db: D,
         tx_receiver: mpsc::Receiver<TxPayload>,
         result_sender: mpsc::Sender<Balances>,
     ) -> Self {
         Self {
             client,
+            balances: Balances::new(),
+            disputed: HashMap::new(),
+            db,
             tx_receiver,
             result_sender,
-            balances: Balances::new(),
         }
     }
 
-    async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) {
+    fn process_tx(&mut self, tx: TxPayload) -> Result<(), Error> {
+        match tx.kind {
+            TxType::Deposit => {
+                let amount = tx.amount.ok_or(Error::InvalidTransaction { id: tx.tx })?;
+                self.balances.deposit(amount);
+                println!("inserting tx {} with amount {}", tx.tx, amount);
+                self.db.insert(tx.tx, amount);
+            }
+            TxType::Withdrawal => {
+                let amount = tx.amount.expect("Withdrawal must have an amount");
+                self.balances.withdrawal(amount);
+            }
+            TxType::Dispute => {
+                if let Some(amount) = self.db.get(&tx.tx) {
+                    self.disputed.insert(tx.tx, *amount);
+                    self.balances.dispute(*amount)
+                };
+            }
+            TxType::Resolve => {
+                if let Some(amount) = self.disputed.get(&tx.tx) {
+                    self.balances.resolve(*amount);
+                    self.disputed.remove(&tx.tx);
+                };
+            }
+            TxType::Chargeback => {
+                if let Some(amount) = self.disputed.get(&tx.tx) {
+                    self.balances.chargeback(*amount);
+                    self.disputed.remove(&tx.tx);
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn crank(&mut self, tx_counter: Arc<AtomicUsize>) -> Result<(), Error> {
         loop {
             match self.tx_receiver.recv().await {
                 Some(tx) => {
                     println!("processing tx for client {}: {:?}", self.client, tx);
-                    self.balances.apply(tx);
+                    self.process_tx(tx)?;
                     tx_counter.fetch_sub(1, Ordering::SeqCst);
                 }
                 None => {
@@ -149,6 +220,8 @@ impl ClientProcessor {
             .unwrap_or_else(|_| {
                 println!("failed to send result for client {}", self.client);
             });
+
+        Ok(())
     }
 }
 
@@ -189,12 +262,16 @@ impl StreamProcessor {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
                     let (result_sender, result_receiver) = mpsc::channel(RESULTS_CHANNEL_SIZE);
                     // TODO: Consider worker pool? When there are millions of clients the current approach could be problematic.
+                    let client_db = InMemTxCache {
+                        txs: HashMap::new(),
+                    };
                     let mut client_processor =
-                        ClientProcessor::new(client, tx_receiver, result_sender);
+                        ClientProcessor::new(client, client_db, tx_receiver, result_sender);
                     self.client_processors.insert(client, tx_sender.clone());
                     self.result_receivers.insert(client, result_receiver);
                     tokio::spawn(async move {
-                        client_processor.crank(Arc::clone(&active_tx_clone)).await;
+                        let _result = client_processor.crank(Arc::clone(&active_tx_clone)).await;
+                        // TODO: Handle errors gracefully
                     });
                     //tokio::spawn(async move {client_processor.crank().await});
                     active_transactions.fetch_add(1, Ordering::SeqCst);
@@ -233,14 +310,14 @@ struct Record {
     kind: TxType,
     client: u16,
     tx: u32,
-    amount: Decimal,
+    amount: Option<Decimal>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TxPayload {
     kind: TxType,
     tx: u32,
-    amount: Decimal,
+    amount: Option<Decimal>,
 }
 
 #[tokio::main]
@@ -267,5 +344,12 @@ async fn main() -> anyhow::Result<()> {
 // Test with chained streams from multiple files
 // Introduce rate limiting?
 // Tracing?
+// Remove all prints and dbg! so the stdout is clean
+// Move to lib, leave just main in main.rs
 
 // Share in a public repo?
+
+// Tests:
+// Test with garbage input
+// 1. withdrawal - no existing client
+// 2. withdrawal - not enough balance
