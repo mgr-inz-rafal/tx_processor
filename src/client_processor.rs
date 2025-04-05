@@ -104,7 +104,7 @@ where
                         if let TxProcessingOutcome::LockAccount = self.process_tx(tx)? {
                             self.locked = true;
                         }
-                    } 
+                    }
                     tx_counter.fetch_sub(1, Ordering::SeqCst);
                 }
                 None => {

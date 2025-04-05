@@ -6,11 +6,11 @@ use std::{
     },
 };
 
-use futures_util::{Stream, StreamExt};
+use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::{Balances, ClientProcessor, Record, TxPayload, in_mem, traits::BalanceUpdater};
+use crate::{Balances, ClientProcessor, InputRecord, TxPayload, in_mem, traits::BalanceUpdater};
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
@@ -25,6 +25,32 @@ where
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
     Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<V>>),
+}
+
+pub(super) struct ClientState<V>
+where
+    V: BalanceUpdater + Copy,
+{
+    client: u16,
+    locked: bool,
+    balances: Balances<V>,
+}
+
+impl<V> ClientState<V>
+where
+    V: BalanceUpdater + Copy,
+{
+    pub(super) fn balances(&self) -> &Balances<V> {
+        &self.balances
+    }
+    
+    pub(super) fn client(&self) -> u16 {
+        self.client
+    }
+    
+    pub(super) fn locked(&self) -> bool {
+        self.locked
+    }
 }
 
 pub(super) struct StreamProcessor<V>
@@ -46,25 +72,25 @@ where
         }
     }
 
-    pub(super) async fn process(
-        &mut self,
-        mut stream: impl Stream<Item = Result<Record<V>, csv_async::Error>> + Unpin,
-    ) -> Result<(), Error<V>> {
+    pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientState<V>>
+    where
+        S: Stream<Item = Result<InputRecord<V>, csv_async::Error>> + Unpin,
+    {
         let active_transactions = Arc::new(AtomicUsize::new(0));
         while let Some(record) = stream.next().await {
-            let Record {
+            let InputRecord {
                 kind,
                 client,
                 tx,
                 amount,
-            } = record?;
+            } = record.unwrap();
             let active_tx_clone = Arc::clone(&active_transactions);
 
             let client_processor = self.client_processors.get(&client);
             match client_processor {
                 Some(sender) => {
                     active_tx_clone.fetch_add(1, Ordering::SeqCst);
-                    sender.send(TxPayload::new(kind, tx, amount)).await?;
+                    sender.send(TxPayload::new(kind, tx, amount)).await.unwrap();
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
@@ -81,7 +107,10 @@ where
                     });
                     // TODO: Consider Overflow check for atomic
                     active_transactions.fetch_add(1, Ordering::SeqCst);
-                    tx_sender.send(TxPayload::new(kind, tx, amount)).await?;
+                    tx_sender
+                        .send(TxPayload::new(kind, tx, amount))
+                        .await
+                        .unwrap();
                 }
             }
         }
@@ -99,13 +128,24 @@ where
         // We only drop senders after all transactions are processed.
         self.client_processors = HashMap::new();
 
+        stream::iter(self.result_receivers.iter_mut()).then(|(client, receiver)| async move {
+            let x = receiver.recv().await.unwrap();
+            ClientState {
+                client: *client,
+                locked: false,
+                balances: x,
+            }
+        }).boxed()
+
         // Collect results
+        /*
         for (client, receiver) in self.result_receivers.iter_mut() {
-            while let Some(_balances) = receiver.recv().await {
-                println!("client {} sent results", client);
+            while let Some(balances) = receiver.recv().await {
+                results.insert(*client, balances);
             }
         }
+        */
 
-        Ok(())
+        //todo!()
     }
 }

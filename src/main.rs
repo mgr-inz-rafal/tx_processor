@@ -1,12 +1,16 @@
+use std::pin::Pin;
+
 use balances::Balances;
 use client_processor::ClientProcessor;
-use csv_async::AsyncReaderBuilder;
+use csv_async::{AsyncReaderBuilder, AsyncSerializer, AsyncWriter};
 use db::in_mem;
+use futures_util::StreamExt;
 use rust_decimal::Decimal;
-use serde::Deserialize;
-use stream_processor::StreamProcessor;
+use serde::{Deserialize, Serialize};
+use stream_processor::{ClientState, StreamProcessor};
 use tokio::fs::File;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+use tokio_util::compat::{ TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+use traits::BalanceUpdater;
 use transaction::{TxPayload, TxType};
 
 mod balances;
@@ -18,12 +22,34 @@ mod traits;
 mod transaction;
 
 #[derive(Debug, Deserialize)]
-struct Record<V> {
+struct InputRecord<V> {
     #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
     kind: TxType,
     client: u16,
     tx: u32,
     amount: Option<V>,
+}
+
+#[derive(Debug, Serialize)]
+struct OutputRecord<V> {
+    client: u16,
+    available: V,
+    held: V,
+    total: V,
+    locked: bool,
+}
+
+impl<V> From<ClientState<V>> for OutputRecord<V> where V: BalanceUpdater + Copy {
+    fn from(client_state: ClientState<V>) -> Self {
+        let balances = client_state.balances();
+        Self {
+            client: client_state.client(),
+            available: balances.available(),
+            held: balances.held(),
+            total: balances.total(),
+            locked: false,
+        }
+    }
 }
 
 #[tokio::main]
@@ -35,10 +61,18 @@ async fn main() -> anyhow::Result<()> {
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
 
-    let mut input_stream = csv_reader.deserialize::<Record<Decimal>>();
+    let mut input_stream = csv_reader.deserialize::<InputRecord<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
-    stream_processor.process(&mut input_stream).await?;
+    let mut result_stream = stream_processor.process(&mut input_stream).await;// ?;
+
+    let output = tokio::io::stdout().compat_write();
+    let mut writer = AsyncSerializer::from_writer(output);
+    while let Some(client_state) = result_stream.next().await {
+        let record: OutputRecord<Decimal> = client_state.into();
+        writer.serialize(&record).await?;
+    }
+    writer.flush().await?;
 
     Ok(())
 }
@@ -59,3 +93,9 @@ async fn main() -> anyhow::Result<()> {
 // Test with garbage input
 // 1. withdrawal - no existing client
 // 2. withdrawal - not enough balance
+
+// Assumptions:
+// 1. The balance can be negative
+// 2. Locked account can not process any transactions
+// 3. There is a limited time window for the dispute to be raised
+// 4. Enough resources to process all clients simultaneously

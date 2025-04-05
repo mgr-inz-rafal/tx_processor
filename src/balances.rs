@@ -99,6 +99,18 @@ where
             .ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
+
+    pub(super) fn available(&self) -> V {
+        self.available
+    }
+
+    pub(super) fn held(&self) -> V {
+        self.held
+    }
+
+    pub(super) fn total(&self) -> V {
+        self.total
+    }
 }
 
 #[cfg(test)]
@@ -168,7 +180,7 @@ mod tests {
     mod overflow {
         use rust_decimal::Decimal;
 
-        use crate::balances::{tests::new_balance, Error};
+        use crate::balances::{Error, tests::new_balance};
 
         #[test]
         fn deposit() {
