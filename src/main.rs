@@ -95,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
 
 // Assumptions:
 // 1. The balance can be negative
-// 2. Locked account can not process any transactions
+// 2. Locked account can not process any transactions (including disputes, resolves, etc.)
 // 3. There is a limited time window for the dispute to be raised
 // 4. Enough resources to process all clients simultaneously
 // 5. Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
@@ -105,3 +105,4 @@ async fn main() -> anyhow::Result<()> {
 // Scenarios:
 // 1. Multiple chargebacks, etc.
 // 2. Locked account can not process any transactions
+// 3. Differently formatted numbers work
