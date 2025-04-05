@@ -1,3 +1,5 @@
+use std::env;
+
 use balances::Balances;
 use client_processor::{ClientProcessor, ClientState};
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
@@ -57,7 +59,15 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let file = File::open("./src/tests/scenarios/garbage.in")
+    // No need to add dedicated dependency (like 'clap') because we only have a single arg.
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <input_file>", args[0]);
+        std::process::exit(1);
+    }
+    let filename = &args[1];
+
+    let file = File::open(filename)
         .await?
         .compat();
     // Does it also have "to_lowercase()"?
