@@ -1,15 +1,13 @@
-use std::pin::Pin;
-
 use balances::Balances;
 use client_processor::ClientProcessor;
-use csv_async::{AsyncReaderBuilder, AsyncSerializer, AsyncWriter};
+use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use stream_processor::{ClientState, StreamProcessor};
 use tokio::fs::File;
-use tokio_util::compat::{ TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
+use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use traits::BalanceUpdater;
 use transaction::{TxPayload, TxType};
 
@@ -39,7 +37,10 @@ struct OutputRecord<V> {
     locked: bool,
 }
 
-impl<V> From<ClientState<V>> for OutputRecord<V> where V: BalanceUpdater + Copy {
+impl<V> From<ClientState<V>> for OutputRecord<V>
+where
+    V: BalanceUpdater + Copy,
+{
     fn from(client_state: ClientState<V>) -> Self {
         let balances = client_state.balances();
         Self {
@@ -64,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
     let mut input_stream = csv_reader.deserialize::<InputRecord<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
-    let mut result_stream = stream_processor.process(&mut input_stream).await;// ?;
+    let mut result_stream = stream_processor.process(&mut input_stream).await; // ?;
 
     let output = tokio::io::stdout().compat_write();
     let mut writer = AsyncSerializer::from_writer(output);

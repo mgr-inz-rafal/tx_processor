@@ -43,11 +43,11 @@ where
     pub(super) fn balances(&self) -> &Balances<V> {
         &self.balances
     }
-    
+
     pub(super) fn client(&self) -> u16 {
         self.client
     }
-    
+
     pub(super) fn locked(&self) -> bool {
         self.locked
     }
@@ -128,14 +128,16 @@ where
         // We only drop senders after all transactions are processed.
         self.client_processors = HashMap::new();
 
-        stream::iter(self.result_receivers.iter_mut()).then(|(client, receiver)| async move {
-            let x = receiver.recv().await.unwrap();
-            ClientState {
-                client: *client,
-                locked: false,
-                balances: x,
-            }
-        }).boxed()
+        stream::iter(self.result_receivers.iter_mut())
+            .then(|(client, receiver)| async move {
+                let x = receiver.recv().await.unwrap();
+                ClientState {
+                    client: *client,
+                    locked: false,
+                    balances: x,
+                }
+            })
+            .boxed()
 
         // Collect results
         /*
