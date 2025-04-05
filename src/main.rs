@@ -57,7 +57,7 @@ where
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let file = File::open("./src/tests/scenarios/deposit_withdrawal_dispute.in")
+    let file = File::open("./src/tests/scenarios/garbage.in")
         .await?
         .compat();
     // Does it also have "to_lowercase()"?
