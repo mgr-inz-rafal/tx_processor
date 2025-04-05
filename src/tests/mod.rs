@@ -31,7 +31,7 @@ fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec
 }
 
 const SCENARIOS_PATH: &str = "./src/tests/scenarios";
-const EXPECTED_SCENARIO_COUNT: usize = 3;
+const EXPECTED_SCENARIO_COUNT: usize = 7;
 
 #[tokio::test]
 async fn scenarios() {
@@ -85,7 +85,7 @@ async fn scenarios() {
 
         let diffs = diff_iterator
             .collect::<Vec<_>>();
-        assert!(diffs.is_empty(), "mismatch: {:?}", diffs);
+        assert!(diffs.is_empty(), "mismatch in scenario: {:?}", path);
 
         count += 1;
     }

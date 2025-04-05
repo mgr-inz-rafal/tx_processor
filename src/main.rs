@@ -35,7 +35,7 @@ struct OutputRecord<V> {
     client: u16,
     available: V,
     held: V,
-    total: V,
+    total: V, // TODO: No need to process this? This is always available + held
     locked: bool,
 }
 
@@ -98,6 +98,6 @@ async fn main() -> anyhow::Result<()> {
 // 2. Locked account can not process any transactions
 // 3. There is a limited time window for the dispute to be raised
 // 4. Enough resources to process all clients simultaneously
-// 5. Only deposit and withdrawal transactions can be disputed
+// 5. Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
 // 6. Tx ids are unique
 // 7. Dispute can be resolved or charged back
