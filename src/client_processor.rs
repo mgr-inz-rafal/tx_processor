@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, oneshot};
 use crate::{
     Balances,
     balances::BalanceUpdater,
-    db::ValueCache,
+    db::DepositValueCache,
     error::Error,
     transaction::{Chargeback, Deposit, Dispute, Resolve, Transaction, Tx, Withdrawal},
 };
@@ -23,7 +23,7 @@ pub(super) enum TxProcessingOutcome {
 
 pub(super) trait TransactionKind<Database, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -35,7 +35,7 @@ where
 impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
     for Transaction<Deposit, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -59,7 +59,7 @@ where
 impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
     for Transaction<Withdrawal, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -75,7 +75,7 @@ where
 impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
     for Transaction<Dispute, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -99,7 +99,7 @@ where
 impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
     for Transaction<Resolve, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -117,7 +117,7 @@ where
 impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
     for Transaction<Chargeback, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     fn process(
@@ -161,7 +161,7 @@ where
 
 pub(super) struct ClientProcessor<Database, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     // Client ID
@@ -186,7 +186,7 @@ where
 
 impl<Database, MonetaryValue> ClientProcessor<Database, MonetaryValue>
 where
-    Database: ValueCache<MonetaryValue>,
+    Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     pub(super) fn new(

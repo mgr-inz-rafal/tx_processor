@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::transaction::{Deposit, Transaction};
 
-use super::ValueCache;
+use super::DepositValueCache;
 
 pub(crate) enum Error {
     AlreadyExists,
@@ -30,7 +30,7 @@ impl<MonetaryValue> AmountCache<MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> ValueCache<MonetaryValue> for AmountCache<MonetaryValue>
+impl<MonetaryValue> DepositValueCache<MonetaryValue> for AmountCache<MonetaryValue>
 where
     MonetaryValue: Copy,
 {

@@ -1,6 +1,6 @@
 use crate::transaction::{Deposit, Transaction};
 
-pub trait ValueCache<MonetaryValue>
+pub trait DepositValueCache<MonetaryValue>
 where
     MonetaryValue: Copy,
 {
