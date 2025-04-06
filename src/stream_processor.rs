@@ -75,7 +75,7 @@ where
     where
         S: Stream<Item = Result<InputRecord<MonetaryValue>, csv_async::Error>> + Unpin,
     {
-        // Use Usize so that we can basically ignore potential overflows. If there
+        // Use usize so that we can basically ignore potential overflows. If there
         // are more than usize::MAX transactions in flight, we have bigger problems
         // already.
         let active_transactions = Arc::new(AtomicUsize::new(0));
@@ -91,15 +91,20 @@ where
                 tx,
                 amount,
             } = record;
-            let active_tx_clone = Arc::clone(&active_transactions);
+
+            let active_transactions = Arc::clone(&active_transactions);
 
             let client_processor = self.client_processors.get(&client);
             match client_processor {
-                Some(sender) => {
-                    active_tx_clone.fetch_add(1, Ordering::SeqCst);
-                    if let Err(_err) = sender.send(TxPayload::new(kind, tx, amount)).await {
-                        //tracing::error!(%_err);
-                    };
+                Some(tx_sender) => {
+                    send_and_register(
+                        kind,
+                        tx,
+                        amount,
+                        Arc::clone(&active_transactions),
+                        tx_sender,
+                    )
+                    .await;
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
@@ -109,17 +114,25 @@ where
                         ClientProcessor::new(client, client_db, tx_receiver, result_sender);
                     self.client_processors.insert(client, tx_sender.clone());
                     self.result_receivers.insert(client, result_receiver);
-                    tokio::spawn(async move {
-                        if let Err(_err) =
-                            client_processor.crank(Arc::clone(&active_tx_clone)).await
-                        {
-                            //tracing::error!(%_err);
+                    tokio::spawn({
+                        let active_transactions = Arc::clone(&active_transactions);
+                        async move {
+                            if let Err(_err) = client_processor
+                                .crank(Arc::clone(&active_transactions))
+                                .await
+                            {
+                                //tracing::error!(%_err);
+                            }
                         }
                     });
-                    active_transactions.fetch_add(1, Ordering::SeqCst);
-                    if let Err(_err) = tx_sender.send(TxPayload::new(kind, tx, amount)).await {
-                        //tracing::error!(%_err);
-                    };
+                    send_and_register(
+                        kind,
+                        tx,
+                        amount,
+                        Arc::clone(&active_transactions),
+                        &tx_sender,
+                    )
+                    .await;
                 }
             }
         }
@@ -143,4 +156,19 @@ where
             })
             .boxed()
     }
+}
+
+async fn send_and_register<MonetaryValue>(
+    kind: crate::TxType,
+    tx: u32,
+    amount: Option<MonetaryValue>,
+    active_tx_clone: Arc<AtomicUsize>,
+    sender: &mpsc::Sender<TxPayload<MonetaryValue>>,
+) where
+    MonetaryValue: BalanceUpdater + Copy + Send + 'static,
+{
+    active_tx_clone.fetch_add(1, Ordering::SeqCst);
+    if let Err(_err) = sender.send(TxPayload::new(kind, tx, amount)).await {
+        //tracing::error!(%_err);
+    };
 }
