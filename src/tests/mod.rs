@@ -63,8 +63,8 @@ async fn result_stream_to_csv(
         }
         writer.flush().await.expect("should flush writer");
     }
-    let cvs_string = String::from_utf8(buffer).expect("valid utf8 string");
-    let cursor = Cursor::new(cvs_string);
+    let csv_string = String::from_utf8(buffer).expect("valid utf8 string");
+    let cursor = Cursor::new(csv_string);
     let cursor_reader: Box<dyn Read + Send> = Box::new(cursor);
     Csv::with_reader(cursor_reader)
 }

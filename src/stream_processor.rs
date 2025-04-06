@@ -11,8 +11,10 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    ClientProcessor, InputRecord, TxPayload, client_processor::ClientState, in_mem,
-    traits::BalanceUpdater,
+    BalanceUpdater, ClientProcessor, InputRecord,
+    client_processor::ClientState,
+    in_mem,
+    transaction::{Chargeback, Deposit, Dispute, Resolve, Transaction, Tx, Withdrawal},
 };
 
 // TODO: This could potentially be a config option to adjust the backpressure
@@ -30,9 +32,13 @@ where
     #[error(transparent)]
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
-    Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<MonetaryValue>>),
+    Tokio(#[from] tokio::sync::mpsc::error::SendError<Tx<MonetaryValue>>),
     #[error("could not receive results for client {client}: {reason}")]
     CouldNotReceiveResults { client: u16, reason: String },
+    #[error("deposit must have an amount")]
+    DepositMustHaveAmount,
+    #[error("withdrawal must have an amount")]
+    WithdrawalMustHaveAmount,
 }
 
 // The `Decimal` type, while being convenient for financial calculations,
@@ -52,9 +58,44 @@ where
     // - Use LRU cache - keep only N processors alive and reuse them.
     //   Persist a state of the processor when it is not used and
     //   restore when it is needed again.
-    client_processors: HashMap<u16, mpsc::Sender<TxPayload<MonetaryValue>>>,
+    client_processors: HashMap<u16, mpsc::Sender<Tx<MonetaryValue>>>,
 
     result_receivers: HashMap<u16, oneshot::Receiver<ClientState<MonetaryValue>>>,
+}
+
+fn try_tx_from_record<MonetaryValue>(
+    record: &InputRecord<MonetaryValue>,
+) -> Result<Tx<MonetaryValue>, Error<MonetaryValue>>
+where
+    MonetaryValue: Copy,
+{
+    match record.kind {
+        crate::TxType::Deposit => {
+            let amount = record.amount.ok_or(Error::DepositMustHaveAmount)?;
+            Ok(Tx::Deposit(Transaction::<Deposit, MonetaryValue>::new(
+                record.client,
+                record.tx,
+                amount,
+            )))
+        }
+        crate::TxType::Withdrawal => {
+            let amount = record.amount.ok_or(Error::WithdrawalMustHaveAmount)?;
+            Ok(Tx::Withdrawal(
+                Transaction::<Withdrawal, MonetaryValue>::new(record.client, record.tx, amount),
+            ))
+        }
+        crate::TxType::Dispute => Ok(Tx::Dispute(Transaction::<Dispute, MonetaryValue>::new(
+            record.client,
+            record.tx,
+        ))),
+        crate::TxType::Resolve => Ok(Tx::Resolve(Transaction::<Resolve, MonetaryValue>::new(
+            record.client,
+            record.tx,
+        ))),
+        crate::TxType::Chargeback => Ok(Tx::Chargeback(
+            Transaction::<Chargeback, MonetaryValue>::new(record.client, record.tx),
+        )),
+    }
 }
 
 impl<MonetaryValue> StreamProcessor<MonetaryValue>
@@ -82,38 +123,30 @@ where
 
         while let Some(record) = stream.next().await {
             let Ok(record) = record else {
-                //tracing::error!("cvs record error");
+                //tracing::error!("csv record error");
                 continue;
             };
-            let InputRecord {
-                kind,
-                client,
-                tx,
-                amount,
-            } = record;
+            let Ok(tx) = try_tx_from_record(&record) else {
+                //tracing::error!("invalid transaction in csv");
+                continue;
+            };
 
             let active_transactions = Arc::clone(&active_transactions);
 
-            let client_processor = self.client_processors.get(&client);
+            let client_processor = self.client_processors.get(&tx.client());
             match client_processor {
                 Some(tx_sender) => {
-                    send_and_register(
-                        kind,
-                        tx,
-                        amount,
-                        Arc::clone(&active_transactions),
-                        tx_sender,
-                    )
-                    .await;
+                    send_and_register(tx, Arc::clone(&active_transactions), tx_sender).await;
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
                     let (result_sender, result_receiver) = oneshot::channel();
                     let client_db = in_mem::AmountCache::new();
                     let mut client_processor =
-                        ClientProcessor::new(client, client_db, tx_receiver, result_sender);
-                    self.client_processors.insert(client, tx_sender.clone());
-                    self.result_receivers.insert(client, result_receiver);
+                        ClientProcessor::new(tx.client(), client_db, tx_receiver, result_sender);
+                    self.client_processors
+                        .insert(tx.client(), tx_sender.clone());
+                    self.result_receivers.insert(tx.client(), result_receiver);
                     tokio::spawn({
                         let active_transactions = Arc::clone(&active_transactions);
                         async move {
@@ -125,14 +158,7 @@ where
                             }
                         }
                     });
-                    send_and_register(
-                        kind,
-                        tx,
-                        amount,
-                        Arc::clone(&active_transactions),
-                        &tx_sender,
-                    )
-                    .await;
+                    send_and_register(tx, Arc::clone(&active_transactions), &tx_sender).await;
                 }
             }
         }
@@ -159,16 +185,14 @@ where
 }
 
 async fn send_and_register<MonetaryValue>(
-    kind: crate::TxType,
-    tx: u32,
-    amount: Option<MonetaryValue>,
+    tx: Tx<MonetaryValue>,
     active_tx_clone: Arc<AtomicUsize>,
-    sender: &mpsc::Sender<TxPayload<MonetaryValue>>,
+    sender: &mpsc::Sender<Tx<MonetaryValue>>,
 ) where
     MonetaryValue: BalanceUpdater + Copy + Send + 'static,
 {
     active_tx_clone.fetch_add(1, Ordering::SeqCst);
-    if let Err(_err) = sender.send(TxPayload::new(kind, tx, amount)).await {
+    if let Err(_err) = sender.send(tx).await {
         //tracing::error!(%_err);
     };
 }

@@ -1,11 +1,18 @@
 use thiserror::Error;
 
-use crate::traits::BalanceUpdater;
-
 #[derive(Error, Debug)]
 pub(super) enum Error {
     #[error("Arithmetic overflow when updating balances")]
     ArithmeticOverflow,
+}
+
+pub(super) trait BalanceUpdater
+where
+    Self: Sized,
+{
+    fn new() -> Self;
+    fn add(self, other: Self) -> Option<Self>;
+    fn sub(self, other: Self) -> Option<Self>;
 }
 
 #[derive(Debug, Clone)]

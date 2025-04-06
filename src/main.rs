@@ -1,6 +1,6 @@
 use std::env;
 
-use balances::Balances;
+use balances::{BalanceUpdater, Balances};
 use client_processor::{ClientProcessor, ClientState};
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use stream_processor::StreamProcessor;
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-use traits::BalanceUpdater;
-use transaction::{TxPayload, TxType};
+use transaction::TxType;
 
 mod balances;
 mod client_processor;
@@ -21,10 +20,9 @@ mod non_negative_checked_decimal;
 mod stream_processor;
 #[cfg(test)]
 mod tests;
-mod traits;
 mod transaction;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct InputRecord<MonetaryValue> {
     #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
     kind: TxType,
@@ -111,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
 // Overflow checks
 // Test with chained streams from multiple files
 // Introduce rate limiting?
+// Pin toolchain
 
 // Tests:
 // Test with garbage input

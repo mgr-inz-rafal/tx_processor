@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::transaction::{Deposit, Transaction};
+
 use super::ValueCache;
 
 pub(crate) enum Error {
@@ -28,14 +30,24 @@ impl<MonetaryValue> AmountCache<MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> ValueCache<MonetaryValue> for AmountCache<MonetaryValue> {
+impl<MonetaryValue> ValueCache<MonetaryValue> for AmountCache<MonetaryValue>
+where
+    MonetaryValue: Copy,
+{
     type Error = Error;
 
     fn get(&self, id: &u32) -> Option<&MonetaryValue> {
         self.txs.get(id)
     }
 
-    fn insert(&mut self, id: u32, amount: MonetaryValue) -> Result<(), Self::Error> {
+    fn insert(
+        &mut self,
+        id: u32,
+        tx: Transaction<Deposit, MonetaryValue>,
+    ) -> Result<(), Self::Error>
+    where
+        MonetaryValue: Copy,
+    {
         if let Some(strategy) = &self.pruning_strategy {
             match strategy {
                 PruningStrategy::Size { max_size: _ } | PruningStrategy::Ttl { duration: _ } => {
@@ -44,7 +56,8 @@ impl<MonetaryValue> ValueCache<MonetaryValue> for AmountCache<MonetaryValue> {
             }
         }
 
-        match self.txs.insert(id, amount) {
+        let amount = tx.amount();
+        match self.txs.insert(id, *amount) {
             Some(_) => Err(Error::AlreadyExists),
             None => Ok(()),
         }

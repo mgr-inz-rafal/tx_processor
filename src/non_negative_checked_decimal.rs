@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::BalanceUpdater;
+use crate::balances::BalanceUpdater;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub(super) struct NonNegativeCheckedDecimal(Decimal);
