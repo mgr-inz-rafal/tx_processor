@@ -63,6 +63,8 @@ where
     }
 }
 
+// `anyhow` only used in the main module for easier integration between
+// operating system and ?-based error handling.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // No need to add dedicated dependency (like 'clap') because we only have a single arg.
@@ -104,32 +106,20 @@ async fn main() -> anyhow::Result<()> {
 }
 
 // Overflow checks
-// Incorrect, garbage input
-// Maximum number of clients handled at the same time
-// Do not use anyhow (except maybe returning from main?)
 // Test with chained streams from multiple files
 // Introduce rate limiting?
-// Tracing?
 
 // Tests:
 // Test with garbage input
 // 1. withdrawal - no existing client
-// 2. withdrawal - not enough balance
 
-// Assumptions:
-// 1. The balance can be negative
-// 2. Locked account can not process any transactions (including disputes, resolves, etc.)
-// 3. There is a limited time window for the dispute to be raised
-// 4. Enough resources to process all clients simultaneously
-// 5. Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
-// 6. Tx ids are unique
-// 7. Dispute can be resolved or charged back
-// 8. User can dispute a transaction again after the dispute is resolved
-// 9. Transactions that lead to incorrect state (arithmetic overflow, etc.) are silently ignored (not to accidentally pollute stdout). At the end of the day, these would deserve a proper handling.
-// 10. Strings representing transaction names are case insensitive (e.g. "Deposit" and "deposit" are the same)
-// 11. Low number of disputes, so the internal map is not abstracted
-
-// Scenarios:
-// 1. Multiple chargebacks, etc.
-// 2. Locked account can not process any transactions
-// 3. Differently formatted numbers work
+// Additional assumptions:
+// - The balance can not be negative
+// - Locked account can not process any transactions (including disputes, resolves, etc.)
+// - There is a limited time window for the dispute to be raised
+// - Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
+// - User can dispute a transaction again after the dispute is resolved
+// - Transactions that lead to incorrect state (arithmetic overflow, etc.) are silently ignored (not to accidentally
+//   pollute stdout). At the end of the day, these would deserve a proper handling.
+//   Commented `tracing` placeholders are left in the code.
+// - Strings representing transaction names are case insensitive (e.g. "Deposit" and "deposit" are the same)

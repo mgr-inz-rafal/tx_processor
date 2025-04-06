@@ -117,6 +117,9 @@ where
                 }
                 if let Some(amount) = self.db.get(&tx.tx()) {
                     self.balances.dispute(*amount)?;
+                    // TODO: Attack vector. One could try to dispute millions of transactions
+                    // and never submit `resolve` or `chargeback`, trying to grow this map
+                    // indefinitely. We should probably limit the amount of simultaneous disputes.
                     self.disputed.insert(tx.tx(), *amount);
                 };
             }
