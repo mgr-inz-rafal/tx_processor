@@ -8,7 +8,7 @@ use std::{
 
 use futures_util::{Stream, StreamExt, stream};
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     ClientProcessor, InputRecord, TxPayload, client_processor::ClientState, in_mem,
@@ -17,7 +17,6 @@ use crate::{
 
 // TODO: Think about backpressure
 const TX_CHANNEL_SIZE: usize = 1000;
-const RESULTS_CHANNEL_SIZE: usize = 100;
 
 pub(super) type ClientResult<MonetaryValue> =
     Result<ClientState<MonetaryValue>, Error<MonetaryValue>>;
@@ -31,8 +30,8 @@ where
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
     Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<MonetaryValue>>),
-    #[error("stream for client {client} closed before results were received")]
-    ResultStreamClosed { client: u16 },
+    #[error("could not receive results for client {client}: {reason}")]
+    CouldNotReceiveResults { client: u16, reason: String },
 }
 
 // The `Decimal` type, while being convenient for financial calculations,
@@ -43,8 +42,18 @@ pub(super) struct StreamProcessor<MonetaryValue>
 where
     MonetaryValue: BalanceUpdater + Copy + Send,
 {
+    // Each client is handled by a separate processor.
+    // TODO: When there are millions of clients the current approach could be
+    // problematic as we spawn a new task for each client. Potential solutions
+    // to explore if this proves to be a problem:
+    // - Use a batched processing, where there is a limited number of
+    //   processors and each processor handles multiple clients.
+    // - Use LRU cache - keep only N processors alive and reuse them.
+    //   Persist a state of the processor when it is not used and
+    //   restore when it is needed again.
     client_processors: HashMap<u16, mpsc::Sender<TxPayload<MonetaryValue>>>,
-    result_receivers: HashMap<u16, mpsc::Receiver<ClientState<MonetaryValue>>>,
+
+    result_receivers: HashMap<u16, oneshot::Receiver<ClientState<MonetaryValue>>>,
 }
 
 impl<MonetaryValue> StreamProcessor<MonetaryValue>
@@ -89,16 +98,18 @@ where
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
-                    let (result_sender, result_receiver) = mpsc::channel(RESULTS_CHANNEL_SIZE);
-                    // TODO: Consider worker pool? When there are millions of clients the current approach could be problematic.
+                    let (result_sender, result_receiver) = oneshot::channel();
                     let client_db = in_mem::AmountCache::new();
                     let mut client_processor =
                         ClientProcessor::new(client, client_db, tx_receiver, result_sender);
                     self.client_processors.insert(client, tx_sender.clone());
                     self.result_receivers.insert(client, result_receiver);
                     tokio::spawn(async move {
-                        let _result = client_processor.crank(Arc::clone(&active_tx_clone)).await;
-                        // TODO: Handle errors gracefully
+                        if let Err(_err) =
+                            client_processor.crank(Arc::clone(&active_tx_clone)).await
+                        {
+                            //tracing::error!(%_err);
+                        }
                     });
                     // TODO: Consider Overflow check for atomic
                     active_transactions.fetch_add(1, Ordering::SeqCst);
@@ -118,12 +129,13 @@ where
         // We only drop senders after all transactions are processed.
         self.client_processors = HashMap::new();
 
+        // Read all results from the receivers.
         stream::iter(self.result_receivers.iter_mut())
             .then(|(client, receiver)| async move {
-                receiver
-                    .recv()
-                    .await
-                    .ok_or(Error::ResultStreamClosed { client: *client })
+                receiver.await.map_err(|err| Error::CouldNotReceiveResults {
+                    client: *client,
+                    reason: err.to_string(),
+                })
             })
             .boxed()
     }

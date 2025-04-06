@@ -6,7 +6,7 @@ use std::{
     },
 };
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     Balances,
@@ -52,15 +52,24 @@ where
     Database: ValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
+    // Client ID
     client: u16,
+    // Each client takes care of its own balance.
     balances: Balances<MonetaryValue>,
+    // The account is locked if there was a chargeback.
     locked: bool,
+    // Abstracted database. It could be anything that can store and retrieve
+    // values. For smaller sets we can use in-mem HashMap, but for more
+    // heavy task this should be a proper storage solution.
     db: Database,
-    // Not abstracted, assuming there will be a limited number of active disputes
+    // The map of amounts being disputed. It is not abstracted due to the
+    // assumption that there will be a limited number of active disputes
     // compared to the total number of transactions.
     disputed: HashMap<u32, MonetaryValue>,
+    // The channel to receive transactions from the stream processor.
     tx_receiver: mpsc::Receiver<TxPayload<MonetaryValue>>,
-    result_sender: mpsc::Sender<ClientState<MonetaryValue>>, // TODO: Could be a one-shot channel?
+    // The channel to send the result back to the stream processor.
+    result_sender: Option<oneshot::Sender<ClientState<MonetaryValue>>>,
 }
 
 impl<Database, MonetaryValue> ClientProcessor<Database, MonetaryValue>
@@ -72,7 +81,7 @@ where
         client: u16,
         db: Database,
         tx_receiver: mpsc::Receiver<TxPayload<MonetaryValue>>,
-        result_sender: mpsc::Sender<ClientState<MonetaryValue>>,
+        result_sender: oneshot::Sender<ClientState<MonetaryValue>>,
     ) -> Self {
         Self {
             client,
@@ -81,7 +90,7 @@ where
             db,
             locked: false,
             tx_receiver,
-            result_sender,
+            result_sender: Some(result_sender),
         }
     }
 
@@ -145,17 +154,18 @@ where
             tx_counter.fetch_sub(1, Ordering::SeqCst);
         }
 
-        self.result_sender
-            .send(ClientState {
-                client: self.client,
-                locked: self.locked,
-                balances: self.balances.clone(),
-            })
-            .await
-            .unwrap_or(
-                // tracing::error!("failed to send result for client {}", self.client);
-                (),
-            );
+        if let Some(sender) = self.result_sender.take() {
+            sender
+                .send(ClientState {
+                    client: self.client,
+                    locked: self.locked,
+                    balances: self.balances.clone(),
+                })
+                .unwrap_or(
+                    // tracing::error!("failed to send result for client {}", self.client);
+                    (),
+                );
+        }
 
         Ok(())
     }
