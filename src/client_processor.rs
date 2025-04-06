@@ -101,7 +101,9 @@ where
                     .amount()
                     .ok_or(Error::InvalidTransaction { id: tx.tx() })?;
                 self.balances.deposit(amount)?;
-                self.db.insert(tx.tx(), amount);
+                self.db
+                    .insert(tx.tx(), amount)
+                    .map_err(|_| Error::DuplicatedTransaction { id: tx.tx() })?
             }
             TxType::Withdrawal => {
                 let amount = tx
