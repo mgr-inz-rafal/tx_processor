@@ -41,19 +41,25 @@ struct OutputRecord<V> {
     locked: bool,
 }
 
-impl<V> From<ClientState<V>> for OutputRecord<V>
+impl<V> TryFrom<ClientState<V>> for OutputRecord<V>
 where
     V: BalanceUpdater + Copy,
 {
-    fn from(client_state: ClientState<V>) -> Self {
+    type Error = anyhow::Error;
+
+    fn try_from(client_state: ClientState<V>) -> Result<Self, Self::Error> {
         let balances = client_state.balances();
-        Self {
+        let total = balances.available().add(balances.held());
+        let Some(total) = total else {
+            return Err(anyhow::anyhow!("total balance overflow"));
+        };
+        Ok(Self {
             client: client_state.client(),
             available: balances.available(),
             held: balances.held(),
-            total: balances.available().add(balances.held()).expect("overflow"),
+            total,
             locked: client_state.locked(),
-        }
+        })
     }
 }
 
@@ -81,7 +87,10 @@ async fn main() -> anyhow::Result<()> {
     while let Some(client_state) = results.next().await {
         match client_state {
             Ok(client_state) => {
-                let record: OutputRecord<Decimal> = client_state.into();
+                let Ok(record): Result<OutputRecord<Decimal>, _> = client_state.try_into() else {
+                    //tracing::error!(%_err);
+                    continue;
+                };
                 writer.serialize(&record).await?;
             }
             Err(_err) => {

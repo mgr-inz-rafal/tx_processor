@@ -59,19 +59,25 @@ where
     {
         let active_transactions = Arc::new(AtomicUsize::new(0));
         while let Some(record) = stream.next().await {
+            let Ok(record) = record else {
+                //tracing::error!("cvs record error");
+                continue;
+            };
             let InputRecord {
                 kind,
                 client,
                 tx,
                 amount,
-            } = record.unwrap();
+            } = record;
             let active_tx_clone = Arc::clone(&active_transactions);
 
             let client_processor = self.client_processors.get(&client);
             match client_processor {
                 Some(sender) => {
                     active_tx_clone.fetch_add(1, Ordering::SeqCst);
-                    sender.send(TxPayload::new(kind, tx, amount)).await.unwrap();
+                    if let Err(_err) = sender.send(TxPayload::new(kind, tx, amount)).await {
+                        //tracing::error!(%_err);
+                    };
                 }
                 None => {
                     let (tx_sender, tx_receiver) = mpsc::channel(TX_CHANNEL_SIZE);
@@ -88,10 +94,9 @@ where
                     });
                     // TODO: Consider Overflow check for atomic
                     active_transactions.fetch_add(1, Ordering::SeqCst);
-                    tx_sender
-                        .send(TxPayload::new(kind, tx, amount))
-                        .await
-                        .unwrap();
+                    if let Err(_err) = tx_sender.send(TxPayload::new(kind, tx, amount)).await {
+                        //tracing::error!(%_err);
+                    };
                 }
             }
         }
@@ -99,7 +104,7 @@ where
         // TODO: Busy waiting at the end to make sure all txs are processed.
         // Could potentially be improved with a more elegant solution.
         while active_transactions.load(Ordering::SeqCst) > 0 {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
         // We only drop senders after all transactions are processed.

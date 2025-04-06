@@ -95,7 +95,9 @@ where
                 self.db.insert(tx.tx(), amount);
             }
             TxType::Withdrawal => {
-                let amount = tx.amount().expect("Withdrawal must have an amount");
+                let amount = tx
+                    .amount()
+                    .ok_or(Error::InvalidTransaction { id: tx.tx() })?;
                 self.balances.withdrawal(amount)?;
             }
             TxType::Dispute => {
@@ -150,9 +152,10 @@ where
                 balances: self.balances.clone(),
             })
             .await
-            .unwrap_or_else(|_| {
+            .unwrap_or(
                 // tracing::error!("failed to send result for client {}", self.client);
-            });
+                (),
+            );
 
         Ok(())
     }
