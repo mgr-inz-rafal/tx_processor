@@ -1,7 +1,6 @@
 use csv_async::{AsyncDeserializer, AsyncReaderBuilder, AsyncSerializer};
 use csv_diff::{csv::Csv, csv_diff::CsvByteDiff};
 use futures_util::{Stream, StreamExt};
-use rust_decimal::Decimal;
 use std::{
     io::{BufReader, Cursor, Read},
     path::{Path, PathBuf},
@@ -9,7 +8,10 @@ use std::{
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use walkdir::WalkDir;
 
-use crate::{ClientState, InputRecord, OutputRecord, StreamProcessor, stream_processor::Error};
+use crate::{
+    ClientState, InputRecord, NonNegativeCheckedDecimal, OutputRecord, StreamProcessor,
+    stream_processor::Error,
+};
 
 fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec<PathBuf> {
     WalkDir::new(dir.as_ref())
@@ -43,14 +45,17 @@ async fn csv_deserializer_from_file<P: AsRef<Path>>(
 }
 
 async fn result_stream_to_csv(
-    mut results: impl Stream<Item = Result<ClientState<Decimal>, Error<Decimal>>> + Unpin,
+    mut results: impl Stream<
+        Item = Result<ClientState<NonNegativeCheckedDecimal>, Error<NonNegativeCheckedDecimal>>,
+    > + Unpin,
 ) -> Csv<Box<dyn std::io::Read + std::marker::Send>> {
     let mut buffer = Vec::new();
     {
         let mut writer = AsyncSerializer::from_writer(&mut buffer);
 
         while let Some(client_state) = results.next().await {
-            let record: OutputRecord<Decimal> = client_state.unwrap().try_into().unwrap();
+            let record: OutputRecord<NonNegativeCheckedDecimal> =
+                client_state.unwrap().try_into().unwrap();
             writer
                 .serialize(&record)
                 .await
@@ -90,7 +95,7 @@ async fn scenarios() {
     for path in files_matching_pattern_from_dir(SCENARIOS_PATH, "in") {
         // Read input
         let mut input = csv_deserializer_from_file(&path).await;
-        let mut input_stream = input.deserialize::<InputRecord<Decimal>>();
+        let mut input_stream = input.deserialize::<InputRecord<NonNegativeCheckedDecimal>>();
 
         // Do the actual processing
         let mut stream_processor = StreamProcessor::new();

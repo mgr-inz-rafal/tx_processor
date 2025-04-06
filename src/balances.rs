@@ -93,11 +93,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use rust_decimal::Decimal;
+    use crate::{Balances, NonNegativeCheckedDecimal};
 
-    use crate::Balances;
-
-    fn new_balance(available: Decimal, held: Decimal) -> Balances<Decimal> {
+    fn new_balance(
+        available: NonNegativeCheckedDecimal,
+        held: NonNegativeCheckedDecimal,
+    ) -> Balances<NonNegativeCheckedDecimal> {
         Balances::new_with_values(available, held)
     }
 
@@ -153,13 +154,14 @@ mod tests {
     }
 
     mod overflow {
-        use rust_decimal::Decimal;
-
-        use crate::balances::{Error, tests::new_balance};
+        use crate::{
+            NonNegativeCheckedDecimal,
+            balances::{Error, tests::new_balance},
+        };
 
         #[test]
         fn deposit() {
-            let mut balance = new_balance(Decimal::MAX, 100.into());
+            let mut balance = new_balance(NonNegativeCheckedDecimal::MAX, 100.into());
             assert!(matches!(
                 balance.deposit(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -168,7 +170,7 @@ mod tests {
 
         #[test]
         fn withdrawal() {
-            let mut balance = new_balance(Decimal::MIN, 100.into());
+            let mut balance = new_balance(NonNegativeCheckedDecimal::MIN, 100.into());
             assert!(matches!(
                 balance.withdrawal(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -177,13 +179,13 @@ mod tests {
 
         #[test]
         fn dispute() {
-            let mut balance = new_balance(100.into(), Decimal::MAX);
+            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MAX);
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(Decimal::MIN, 100.into());
+            let mut balance = new_balance(NonNegativeCheckedDecimal::MIN, 100.into());
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -192,13 +194,13 @@ mod tests {
 
         #[test]
         fn resolve() {
-            let mut balance = new_balance(100.into(), Decimal::MIN);
+            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MIN);
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(Decimal::MAX, 100.into());
+            let mut balance = new_balance(NonNegativeCheckedDecimal::MAX, 100.into());
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -207,7 +209,7 @@ mod tests {
 
         #[test]
         fn chargeback() {
-            let mut balance = new_balance(100.into(), Decimal::MIN);
+            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MIN);
             assert!(matches!(
                 balance.chargeback(1.into()),
                 Err(Error::ArithmeticOverflow)

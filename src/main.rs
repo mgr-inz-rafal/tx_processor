@@ -5,7 +5,7 @@ use client_processor::{ClientProcessor, ClientState};
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
-use rust_decimal::Decimal;
+use non_negative_checked_decimal::NonNegativeCheckedDecimal;
 use serde::{Deserialize, Serialize};
 use stream_processor::StreamProcessor;
 use tokio::fs::File;
@@ -17,6 +17,7 @@ mod balances;
 mod client_processor;
 mod db;
 mod error;
+mod non_negative_checked_decimal;
 mod stream_processor;
 #[cfg(test)]
 mod tests;
@@ -80,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
         .has_headers(true)
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
-    let mut input = csv_reader.deserialize::<InputRecord<Decimal>>();
+    let mut input = csv_reader.deserialize::<InputRecord<NonNegativeCheckedDecimal>>();
 
     let mut stream_processor = StreamProcessor::new();
     let mut results = stream_processor.process(&mut input).await; // ?;
@@ -89,7 +90,9 @@ async fn main() -> anyhow::Result<()> {
     while let Some(client_state) = results.next().await {
         match client_state {
             Ok(client_state) => {
-                let Ok(record): Result<OutputRecord<Decimal>, _> = client_state.try_into() else {
+                let Ok(record): Result<OutputRecord<NonNegativeCheckedDecimal>, _> =
+                    client_state.try_into()
+                else {
                     //tracing::error!(%_err);
                     continue;
                 };
