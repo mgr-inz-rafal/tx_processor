@@ -15,7 +15,8 @@ use crate::{
     traits::BalanceUpdater,
 };
 
-// TODO: Think about backpressure
+// TODO: This could potentially be a config option to adjust the backpressure
+// for a specific scenario.
 const TX_CHANNEL_SIZE: usize = 1000;
 
 pub(super) type ClientResult<MonetaryValue> =
@@ -74,7 +75,11 @@ where
     where
         S: Stream<Item = Result<InputRecord<MonetaryValue>, csv_async::Error>> + Unpin,
     {
+        // Use Usize so that we can basically ignore potential overflows. If there
+        // are more than usize::MAX transactions in flight, we have bigger problems
+        // already.
         let active_transactions = Arc::new(AtomicUsize::new(0));
+
         while let Some(record) = stream.next().await {
             let Ok(record) = record else {
                 //tracing::error!("cvs record error");
@@ -111,7 +116,6 @@ where
                             //tracing::error!(%_err);
                         }
                     });
-                    // TODO: Consider Overflow check for atomic
                     active_transactions.fetch_add(1, Ordering::SeqCst);
                     if let Err(_err) = tx_sender.send(TxPayload::new(kind, tx, amount)).await {
                         //tracing::error!(%_err);
@@ -121,7 +125,7 @@ where
         }
 
         // TODO: Busy waiting at the end to make sure all txs are processed.
-        // Could potentially be improved with a more elegant solution.
+        // This could potentially be improved with a more elegant solution.
         while active_transactions.load(Ordering::SeqCst) > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
