@@ -19,32 +19,37 @@ use crate::{
 const TX_CHANNEL_SIZE: usize = 1000;
 const RESULTS_CHANNEL_SIZE: usize = 100;
 
-pub(super) type ClientResult<V> = Result<ClientState<V>, Error<V>>;
+pub(super) type ClientResult<MonetaryValue> =
+    Result<ClientState<MonetaryValue>, Error<MonetaryValue>>;
 
 #[derive(Debug, Error)]
-pub(super) enum Error<V>
+pub(super) enum Error<MonetaryValue>
 where
-    V: Copy,
+    MonetaryValue: Copy,
 {
     #[error(transparent)]
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
-    Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<V>>),
+    Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<MonetaryValue>>),
     #[error("stream for client {client} closed before results were received")]
     ResultStreamClosed { client: u16 },
 }
 
-pub(super) struct StreamProcessor<V>
+// The `Decimal` type, while being convenient for financial calculations,
+// consists of 4 u32 values. This is why `StreamProcessor` abstracts over it
+// so we can build a smaller type based on a single u64 and then
+// easily use it with the `StreamProcessor`.
+pub(super) struct StreamProcessor<MonetaryValue>
 where
-    V: BalanceUpdater + Copy + Send,
+    MonetaryValue: BalanceUpdater + Copy + Send,
 {
-    client_processors: HashMap<u16, mpsc::Sender<TxPayload<V>>>,
-    result_receivers: HashMap<u16, mpsc::Receiver<ClientState<V>>>,
+    client_processors: HashMap<u16, mpsc::Sender<TxPayload<MonetaryValue>>>,
+    result_receivers: HashMap<u16, mpsc::Receiver<ClientState<MonetaryValue>>>,
 }
 
-impl<V> StreamProcessor<V>
+impl<MonetaryValue> StreamProcessor<MonetaryValue>
 where
-    V: BalanceUpdater + Copy + Send + 'static,
+    MonetaryValue: BalanceUpdater + Copy + Send + 'static,
 {
     pub(super) fn new() -> Self {
         Self {
@@ -53,9 +58,12 @@ where
         }
     }
 
-    pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientResult<V>>
+    pub(super) async fn process<S>(
+        &mut self,
+        mut stream: S,
+    ) -> impl Stream<Item = ClientResult<MonetaryValue>>
     where
-        S: Stream<Item = Result<InputRecord<V>, csv_async::Error>> + Unpin,
+        S: Stream<Item = Result<InputRecord<MonetaryValue>, csv_async::Error>> + Unpin,
     {
         let active_transactions = Arc::new(AtomicUsize::new(0));
         while let Some(record) = stream.next().await {

@@ -21,20 +21,20 @@ enum TxProcessingOutcome {
     NoAction,
 }
 
-pub(super) struct ClientState<V>
+pub(super) struct ClientState<MonetaryValue>
 where
-    V: BalanceUpdater + Copy,
+    MonetaryValue: BalanceUpdater + Copy,
 {
     client: u16,
     locked: bool,
-    balances: Balances<V>,
+    balances: Balances<MonetaryValue>,
 }
 
-impl<V> ClientState<V>
+impl<MonetaryValue> ClientState<MonetaryValue>
 where
-    V: BalanceUpdater + Copy,
+    MonetaryValue: BalanceUpdater + Copy,
 {
-    pub(super) fn balances(&self) -> &Balances<V> {
+    pub(super) fn balances(&self) -> &Balances<MonetaryValue> {
         &self.balances
     }
 
@@ -47,32 +47,32 @@ where
     }
 }
 
-pub(super) struct ClientProcessor<D, V>
+pub(super) struct ClientProcessor<D, MonetaryValue>
 where
-    D: ValueCache<V>,
-    V: BalanceUpdater + Copy,
+    D: ValueCache<MonetaryValue>,
+    MonetaryValue: BalanceUpdater + Copy,
 {
     client: u16,
-    balances: Balances<V>,
+    balances: Balances<MonetaryValue>,
     locked: bool,
     db: D,
     // Not abstracted, assuming there will be a limited number of active disputes
     // compared to the total number of transactions.
-    disputed: HashMap<u32, V>,
-    tx_receiver: mpsc::Receiver<TxPayload<V>>,
-    result_sender: mpsc::Sender<ClientState<V>>, // TODO: Could be a one-shot channel?
+    disputed: HashMap<u32, MonetaryValue>,
+    tx_receiver: mpsc::Receiver<TxPayload<MonetaryValue>>,
+    result_sender: mpsc::Sender<ClientState<MonetaryValue>>, // TODO: Could be a one-shot channel?
 }
 
-impl<D, V> ClientProcessor<D, V>
+impl<D, MonetaryValue> ClientProcessor<D, MonetaryValue>
 where
-    D: ValueCache<V>,
-    V: BalanceUpdater + Copy,
+    D: ValueCache<MonetaryValue>,
+    MonetaryValue: BalanceUpdater + Copy,
 {
     pub(super) fn new(
         client: u16,
         db: D,
-        tx_receiver: mpsc::Receiver<TxPayload<V>>,
-        result_sender: mpsc::Sender<ClientState<V>>,
+        tx_receiver: mpsc::Receiver<TxPayload<MonetaryValue>>,
+        result_sender: mpsc::Sender<ClientState<MonetaryValue>>,
     ) -> Self {
         Self {
             client,
@@ -85,7 +85,7 @@ where
         }
     }
 
-    fn process_tx(&mut self, tx: TxPayload<V>) -> Result<TxProcessingOutcome, Error> {
+    fn process_tx(&mut self, tx: TxPayload<MonetaryValue>) -> Result<TxProcessingOutcome, Error> {
         match tx.kind() {
             TxType::Deposit => {
                 let amount = tx

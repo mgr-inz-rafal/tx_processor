@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use super::ValueCache;
 
 #[derive(Debug, Clone)]
-pub(crate) struct AmountCache<V> {
-    txs: HashMap<u32, V>,
+pub(crate) struct AmountCache<MonetaryValue> {
+    txs: HashMap<u32, MonetaryValue>,
 }
 
-impl<V> AmountCache<V> {
+impl<MonetaryValue> AmountCache<MonetaryValue> {
     pub(crate) fn new() -> Self {
         Self {
             txs: HashMap::new(),
@@ -15,17 +15,17 @@ impl<V> AmountCache<V> {
     }
 }
 
-impl<V> ValueCache<V> for AmountCache<V> {
-    fn get(&self, id: &u32) -> Option<&V> {
+impl<MonetaryValue> ValueCache<MonetaryValue> for AmountCache<MonetaryValue> {
+    fn get(&self, id: &u32) -> Option<&MonetaryValue> {
         self.txs.get(id)
     }
 
     // TODO: Duplicated ID should yield an error.
-    fn insert(&mut self, id: u32, amount: V) {
+    fn insert(&mut self, id: u32, amount: MonetaryValue) {
         self.txs.insert(id, amount);
     }
 
-    fn remove(&mut self, id: u32) -> Option<V> {
+    fn remove(&mut self, id: u32) -> Option<MonetaryValue> {
         self.txs.remove(&id)
     }
 }

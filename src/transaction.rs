@@ -32,24 +32,24 @@ impl TxType {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct TxPayload<V>
+pub(super) struct TxPayload<MonetaryValue>
 where
-    V: Copy,
+    MonetaryValue: Copy,
 {
     kind: TxType,
     tx: u32,
-    amount: Option<V>,
+    amount: Option<MonetaryValue>,
 }
 
-impl<V> TxPayload<V>
+impl<MonetaryValue> TxPayload<MonetaryValue>
 where
-    V: Copy,
+    MonetaryValue: Copy,
 {
-    pub(super) fn new(kind: TxType, tx: u32, amount: Option<V>) -> Self {
+    pub(super) fn new(kind: TxType, tx: u32, amount: Option<MonetaryValue>) -> Self {
         Self { kind, tx, amount }
     }
 
-    pub(super) fn amount(&self) -> Option<V> {
+    pub(super) fn amount(&self) -> Option<MonetaryValue> {
         self.amount
     }
 

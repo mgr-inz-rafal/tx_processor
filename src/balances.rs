@@ -9,37 +9,41 @@ pub(super) enum Error {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Balances<V>
+pub(super) struct Balances<MonetaryValue>
 where
-    V: BalanceUpdater + Copy,
+    MonetaryValue: BalanceUpdater + Copy,
 {
-    available: V,
-    held: V,
+    available: MonetaryValue,
+    held: MonetaryValue,
 }
 
-impl<V> Balances<V>
+impl<MonetaryValue> Balances<MonetaryValue>
 where
-    V: BalanceUpdater + Copy,
+    MonetaryValue: BalanceUpdater + Copy,
 {
     pub(super) fn new() -> Self {
         Self {
-            available: V::new(),
-            held: V::new(),
+            available: MonetaryValue::new(),
+            held: MonetaryValue::new(),
         }
     }
 
     #[cfg(test)]
-    fn new_with_values(available: V, held: V) -> Self {
+    fn new_with_values(available: MonetaryValue, held: MonetaryValue) -> Self {
         Self { available, held }
     }
 
-    fn transfer(from: V, to: V, amount: V) -> Option<(V, V)> {
+    fn transfer(
+        from: MonetaryValue,
+        to: MonetaryValue,
+        amount: MonetaryValue,
+    ) -> Option<(MonetaryValue, MonetaryValue)> {
         let new_from = from.sub(amount)?;
         let new_to = to.add(amount)?;
         Some((new_from, new_to))
     }
 
-    pub(super) fn deposit(&mut self, amount: V) -> Result<(), Error> {
+    pub(super) fn deposit(&mut self, amount: MonetaryValue) -> Result<(), Error> {
         self.available = self
             .available
             .add(amount)
@@ -47,7 +51,7 @@ where
         Ok(())
     }
 
-    pub(super) fn withdrawal(&mut self, amount: V) -> Result<(), Error> {
+    pub(super) fn withdrawal(&mut self, amount: MonetaryValue) -> Result<(), Error> {
         self.available = self
             .available
             .sub(amount)
@@ -55,7 +59,7 @@ where
         Ok(())
     }
 
-    pub(super) fn dispute(&mut self, amount: V) -> Result<(), Error> {
+    pub(super) fn dispute(&mut self, amount: MonetaryValue) -> Result<(), Error> {
         let (new_available, new_held) =
             Self::transfer(self.available, self.held, amount).ok_or(Error::ArithmeticOverflow)?;
 
@@ -64,7 +68,7 @@ where
         Ok(())
     }
 
-    pub(super) fn resolve(&mut self, amount: V) -> Result<(), Error> {
+    pub(super) fn resolve(&mut self, amount: MonetaryValue) -> Result<(), Error> {
         let (new_held, new_available) =
             Self::transfer(self.held, self.available, amount).ok_or(Error::ArithmeticOverflow)?;
 
@@ -73,16 +77,16 @@ where
         Ok(())
     }
 
-    pub(super) fn chargeback(&mut self, amount: V) -> Result<(), Error> {
+    pub(super) fn chargeback(&mut self, amount: MonetaryValue) -> Result<(), Error> {
         self.held = self.held.sub(amount).ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 
-    pub(super) fn available(&self) -> V {
+    pub(super) fn available(&self) -> MonetaryValue {
         self.available
     }
 
-    pub(super) fn held(&self) -> V {
+    pub(super) fn held(&self) -> MonetaryValue {
         self.held
     }
 }

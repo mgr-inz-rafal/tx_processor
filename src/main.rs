@@ -24,30 +24,30 @@ mod traits;
 mod transaction;
 
 #[derive(Debug, Deserialize)]
-struct InputRecord<V> {
+struct InputRecord<MonetaryValue> {
     #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
     kind: TxType,
     client: u16,
     tx: u32,
-    amount: Option<V>,
+    amount: Option<MonetaryValue>,
 }
 
 #[derive(Debug, Serialize)]
-struct OutputRecord<V> {
+struct OutputRecord<MonetaryValue> {
     client: u16,
-    available: V,
-    held: V,
-    total: V,
+    available: MonetaryValue,
+    held: MonetaryValue,
+    total: MonetaryValue,
     locked: bool,
 }
 
-impl<V> TryFrom<ClientState<V>> for OutputRecord<V>
+impl<MonetaryValue> TryFrom<ClientState<MonetaryValue>> for OutputRecord<MonetaryValue>
 where
-    V: BalanceUpdater + Copy,
+    MonetaryValue: BalanceUpdater + Copy,
 {
     type Error = anyhow::Error;
 
-    fn try_from(client_state: ClientState<V>) -> Result<Self, Self::Error> {
+    fn try_from(client_state: ClientState<MonetaryValue>) -> Result<Self, Self::Error> {
         let balances = client_state.balances();
         let total = balances.available().add(balances.held());
         let Some(total) = total else {
