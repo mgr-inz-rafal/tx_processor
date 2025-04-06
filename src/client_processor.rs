@@ -60,7 +60,7 @@ where
     // compared to the total number of transactions.
     disputed: HashMap<u32, V>,
     tx_receiver: mpsc::Receiver<TxPayload<V>>,
-    result_sender: mpsc::Sender<ClientState<V>>,
+    result_sender: mpsc::Sender<ClientState<V>>, // TODO: Could be a one-shot channel?
 }
 
 impl<D, V> ClientProcessor<D, V>
@@ -136,7 +136,6 @@ where
                         }
                     }
                     Err(_e) => {
-                        // TODO: Proper error handling
                         // tracing::error!("Error processing transaction: {:?}", _e);
                     }
                 }
@@ -152,7 +151,7 @@ where
             })
             .await
             .unwrap_or_else(|_| {
-                println!("failed to send result for client {}", self.client);
+                // tracing::error!("failed to send result for client {}", self.client);
             });
 
         Ok(())

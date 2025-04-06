@@ -67,9 +67,7 @@ async fn main() -> anyhow::Result<()> {
     }
     let filename = &args[1];
 
-    let file = File::open(filename)
-        .await?
-        .compat();
+    let file = File::open(filename).await?.compat();
     let mut csv_reader = AsyncReaderBuilder::new()
         .has_headers(true)
         .trim(csv_async::Trim::All)
@@ -81,8 +79,15 @@ async fn main() -> anyhow::Result<()> {
 
     let mut writer = AsyncSerializer::from_writer(tokio::io::stdout().compat_write());
     while let Some(client_state) = results.next().await {
-        let record: OutputRecord<Decimal> = client_state.into();
-        writer.serialize(&record).await?;
+        match client_state {
+            Ok(client_state) => {
+                let record: OutputRecord<Decimal> = client_state.into();
+                writer.serialize(&record).await?;
+            }
+            Err(_err) => {
+                //tracing::error!(%_err);
+            }
+        }
     }
     writer.flush().await?;
 
@@ -96,8 +101,6 @@ async fn main() -> anyhow::Result<()> {
 // Test with chained streams from multiple files
 // Introduce rate limiting?
 // Tracing?
-// Remove all prints and dbg! so the stdout is clean
-// Move to lib, leave just main in main.rs
 
 // Tests:
 // Test with garbage input

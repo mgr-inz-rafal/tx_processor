@@ -19,6 +19,8 @@ use crate::{
 const TX_CHANNEL_SIZE: usize = 1000;
 const RESULTS_CHANNEL_SIZE: usize = 100;
 
+pub(super) type ClientResult<V> = Result<ClientState<V>, Error<V>>;
+
 #[derive(Debug, Error)]
 pub(super) enum Error<V>
 where
@@ -28,6 +30,8 @@ where
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
     Tokio(#[from] tokio::sync::mpsc::error::SendError<TxPayload<V>>),
+    #[error("stream for client {client} closed before results were received")]
+    ResultStreamClosed { client: u16 },
 }
 
 pub(super) struct StreamProcessor<V>
@@ -49,7 +53,7 @@ where
         }
     }
 
-    pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientState<V>>
+    pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientResult<V>>
     where
         S: Stream<Item = Result<InputRecord<V>, csv_async::Error>> + Unpin,
     {
@@ -95,10 +99,6 @@ where
         // TODO: Busy waiting at the end to make sure all txs are processed.
         // Could potentially be improved with a more elegant solution.
         while active_transactions.load(Ordering::SeqCst) > 0 {
-            println!(
-                "waiting for {} transactions to finish",
-                active_transactions.load(Ordering::SeqCst)
-            );
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
 
@@ -106,7 +106,12 @@ where
         self.client_processors = HashMap::new();
 
         stream::iter(self.result_receivers.iter_mut())
-            .then(|(_, receiver)| async move { receiver.recv().await.unwrap() })
+            .then(|(client, receiver)| async move {
+                receiver
+                    .recv()
+                    .await
+                    .ok_or(Error::ResultStreamClosed { client: *client })
+            })
             .boxed()
     }
 }

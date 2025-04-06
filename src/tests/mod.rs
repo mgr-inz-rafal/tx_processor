@@ -59,7 +59,7 @@ async fn scenarios() {
             let mut writer = AsyncSerializer::from_writer(&mut buffer);
 
             while let Some(client_state) = results.next().await {
-                let record: OutputRecord<Decimal> = client_state.into();
+                let record: OutputRecord<Decimal> = client_state.unwrap().into();
                 writer
                     .serialize(&record)
                     .await
