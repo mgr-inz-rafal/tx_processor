@@ -63,7 +63,7 @@ mod tests {
     }
 
     #[test]
-    fn max() {
+    fn min() {
         assert_eq!(NonNegativeCheckedDecimal::MIN, 0.into());
     }
 }
