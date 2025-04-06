@@ -47,15 +47,15 @@ where
     }
 }
 
-pub(super) struct ClientProcessor<D, MonetaryValue>
+pub(super) struct ClientProcessor<Database, MonetaryValue>
 where
-    D: ValueCache<MonetaryValue>,
+    Database: ValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     client: u16,
     balances: Balances<MonetaryValue>,
     locked: bool,
-    db: D,
+    db: Database,
     // Not abstracted, assuming there will be a limited number of active disputes
     // compared to the total number of transactions.
     disputed: HashMap<u32, MonetaryValue>,
@@ -63,14 +63,14 @@ where
     result_sender: mpsc::Sender<ClientState<MonetaryValue>>, // TODO: Could be a one-shot channel?
 }
 
-impl<D, MonetaryValue> ClientProcessor<D, MonetaryValue>
+impl<Database, MonetaryValue> ClientProcessor<Database, MonetaryValue>
 where
-    D: ValueCache<MonetaryValue>,
+    Database: ValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
 {
     pub(super) fn new(
         client: u16,
-        db: D,
+        db: Database,
         tx_receiver: mpsc::Receiver<TxPayload<MonetaryValue>>,
         result_sender: mpsc::Sender<ClientState<MonetaryValue>>,
     ) -> Self {
