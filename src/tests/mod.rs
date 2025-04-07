@@ -29,7 +29,7 @@ fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec
 }
 
 const SCENARIOS_PATH: &str = "./src/tests/scenarios";
-const EXPECTED_SCENARIO_COUNT: usize = 25;
+const EXPECTED_SCENARIO_COUNT: usize = 27;
 
 async fn csv_deserializer_from_file<P: AsRef<Path>>(
     path: P,
@@ -64,6 +64,7 @@ async fn result_stream_to_csv(
         writer.flush().await.expect("should flush writer");
     }
     let csv_string = String::from_utf8(buffer).expect("valid utf8 string");
+    dbg!(&csv_string);
     let cursor = Cursor::new(csv_string);
     let cursor_reader: Box<dyn Read + Send> = Box::new(cursor);
     Csv::with_reader(cursor_reader)
