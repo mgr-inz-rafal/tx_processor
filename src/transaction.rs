@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
+//! A module consisting of types and functions to handle transactions.
 
-use crate::{stream_processor::Error, BalanceUpdater, ClientState};
+use serde::Deserialize;
+
+use crate::stream_processor::Error;
 
 pub struct Deposit;
 pub struct Withdrawal;
@@ -8,6 +10,7 @@ pub struct Dispute;
 pub struct Resolve;
 pub struct Chargeback;
 
+// The main transaction type.
 pub(super) enum Transaction<MonetaryValue> {
     Deposit(TransactionPayload<Deposit, MonetaryValue>),
     Withdrawal(TransactionPayload<Withdrawal, MonetaryValue>),
@@ -28,9 +31,12 @@ impl<MonetaryValue> Transaction<MonetaryValue> {
     }
 }
 
+// Payload (metadata) of the transaction.
 pub(super) struct TransactionPayload<Kind, MonetaryValue> {
     client: u16,
     tx: u32,
+    // Option, since not all types of transactions have an amount.
+    // The `Kind` type parameter ensures that this is correctly handled.
     amount: Option<MonetaryValue>,
     phantom: std::marker::PhantomData<Kind>,
 }
@@ -112,6 +118,8 @@ impl<MonetaryValue> TransactionPayload<Chargeback, MonetaryValue> {
     }
 }
 
+// Helper struct that deserializes the CSV input into the correct transaction type.
+// It helps to avoid carrying around the `String` instance with every transaction.
 #[derive(Debug, Copy, Clone)]
 pub(super) enum TransactionCsvType {
     Deposit,
@@ -143,44 +151,19 @@ impl TransactionCsvType {
     }
 }
 
+// Transaction as created from the CSV input. This metadata is converted
+// to a correct transaction before being processed.
+// TODO: Reorg code and move this to a common place with `OutputClientData`
 #[derive(Clone, Debug, Deserialize)]
 pub(super) struct InputCsvTransaction<MonetaryValue> {
-    #[serde(rename = "type", deserialize_with = "TransactionCsvType::from_deserializer")]
+    #[serde(
+        rename = "type",
+        deserialize_with = "TransactionCsvType::from_deserializer"
+    )]
     kind: TransactionCsvType,
     client: u16,
     tx: u32,
     amount: Option<MonetaryValue>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct OutputCsvTransaction<MonetaryValue> {
-    client: u16,
-    available: MonetaryValue,
-    held: MonetaryValue,
-    total: MonetaryValue,
-    locked: bool,
-}
-
-impl<MonetaryValue> TryFrom<ClientState<MonetaryValue>> for OutputCsvTransaction<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
-    type Error = anyhow::Error;
-
-    fn try_from(client_state: ClientState<MonetaryValue>) -> Result<Self, Self::Error> {
-        let balances = client_state.balances();
-        let total = balances.available().add(balances.held());
-        let Some(total) = total else {
-            return Err(anyhow::anyhow!("total balance overflow"));
-        };
-        Ok(Self {
-            client: client_state.client(),
-            available: balances.available(),
-            held: balances.held(),
-            total,
-            locked: client_state.locked(),
-        })
-    }
 }
 
 impl<MonetaryValue> TryFrom<InputCsvTransaction<MonetaryValue>> for Transaction<MonetaryValue>

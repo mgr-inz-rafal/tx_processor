@@ -1,3 +1,6 @@
+//! A wrapper around `rust_decimal::Decimal` that ensures the value is non-negative
+//! and implements the `BalanceUpdater` trait.
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 

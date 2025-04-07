@@ -1,3 +1,8 @@
+//! In-memory database implementation for the `DepositValueCache` trait.
+//!
+//! Provides a simple in-memory cache for storing deposit values associated with transaction IDs.
+//! It is not production ready since it has no overflow protection implemented.
+
 use std::collections::HashMap;
 
 use crate::transaction::{Deposit, TransactionPayload};

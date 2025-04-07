@@ -1,3 +1,6 @@
+//! A stream processor is responsible for processing a stream of CSV transaction.
+//! As a result it produces a stream of final client states.
+
 use std::{
     collections::HashMap,
     sync::{
@@ -7,15 +10,47 @@ use std::{
 };
 
 use futures_util::{Stream, StreamExt, stream};
+use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    BalanceUpdater, ClientProcessor, InputCsvTransaction,
-    client_processor::ClientState,
-    in_mem,
+    BalanceUpdater, ClientProcessor, InputCsvTransaction, client_processor::ClientState, in_mem,
     transaction::Transaction,
 };
+
+// This struct is used to serialize the results of processing.
+// TODO: Reorg code and move this to a common place with `InputCsvTransaction`
+#[derive(Debug, Serialize)]
+pub(super) struct OutputClientData<MonetaryValue> {
+    client: u16,
+    available: MonetaryValue,
+    held: MonetaryValue,
+    total: MonetaryValue,
+    locked: bool,
+}
+
+impl<MonetaryValue> TryFrom<ClientState<MonetaryValue>> for OutputClientData<MonetaryValue>
+where
+    MonetaryValue: BalanceUpdater + Copy,
+{
+    type Error = anyhow::Error;
+
+    fn try_from(client_state: ClientState<MonetaryValue>) -> Result<Self, Self::Error> {
+        let balances = client_state.balances();
+        let total = balances.available().add(balances.held());
+        let Some(total) = total else {
+            return Err(anyhow::anyhow!("total balance overflow"));
+        };
+        Ok(Self {
+            client: client_state.client(),
+            available: balances.available(),
+            held: balances.held(),
+            total,
+            locked: client_state.locked(),
+        })
+    }
+}
 
 // TODO: This could potentially be a config option to adjust the backpressure
 // for a specific scenario.

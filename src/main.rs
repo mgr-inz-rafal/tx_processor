@@ -1,15 +1,15 @@
 use std::env;
 
 use balances::{BalanceUpdater, Balances};
-use client_processor::{ClientProcessor, ClientState};
+use client_processor::ClientProcessor;
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
 use non_negative_checked_decimal::NonNegativeCheckedDecimal;
-use stream_processor::StreamProcessor;
+use stream_processor::{OutputClientData, StreamProcessor};
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-use transaction::{InputCsvTransaction, OutputCsvTransaction, TransactionCsvType};
+use transaction::{InputCsvTransaction, TransactionCsvType};
 
 mod balances;
 mod client_processor;
@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     while let Some(client_state) = results.next().await {
         match client_state {
             Ok(client_state) => {
-                let Ok(record): Result<OutputCsvTransaction<NonNegativeCheckedDecimal>, _> =
+                let Ok(record): Result<OutputClientData<NonNegativeCheckedDecimal>, _> =
                     client_state.try_into()
                 else {
                     //tracing::error!(%_err);

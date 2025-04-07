@@ -1,3 +1,8 @@
+//! A client processor is responsible for processing transactions for a single client.
+//!
+//! It works with any value that implements the `BalanceUpdater` trait. It does not store
+//! the `total` balance as it can always be derived from `held` and `available`.
+
 use std::{
     collections::HashMap,
     sync::{
@@ -13,7 +18,9 @@ use crate::{
     balances::BalanceUpdater,
     db::DepositValueCache,
     error::Error,
-    transaction::{Chargeback, Deposit, Dispute, Resolve, TransactionPayload, Transaction, Withdrawal},
+    transaction::{
+        Chargeback, Deposit, Dispute, Resolve, Transaction, TransactionPayload, Withdrawal,
+    },
 };
 
 pub(super) enum TransactionProcessingOutcome {
@@ -133,6 +140,7 @@ where
     }
 }
 
+/// Represents the final client state after all transactions have been processed.
 pub(super) struct ClientState<MonetaryValue>
 where
     MonetaryValue: BalanceUpdater + Copy,

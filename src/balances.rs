@@ -1,3 +1,8 @@
+//! Balances module helps to track and update all balances.
+//!
+//! It works with any value that implements the `BalanceUpdater` trait. It does not store
+//! the `total` balance as it can always be derived from `held` and `available`.
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -117,7 +122,6 @@ mod tests {
             let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.deposit(1.into()).is_ok());
-
             assert_eq!(balance.available, 101.into());
         }
 
@@ -126,7 +130,6 @@ mod tests {
             let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.withdrawal(1.into()).is_ok());
-
             assert_eq!(balance.available, 99.into());
         }
 
@@ -135,7 +138,6 @@ mod tests {
             let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.dispute(1.into()).is_ok());
-
             assert_eq!(balance.held, 201.into());
             assert_eq!(balance.available, 99.into());
         }
@@ -145,7 +147,6 @@ mod tests {
             let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.resolve(1.into()).is_ok());
-
             assert_eq!(balance.held, 199.into());
             assert_eq!(balance.available, 101.into());
         }
@@ -155,12 +156,11 @@ mod tests {
             let mut balance = new_balance(100.into(), 200.into());
 
             assert!(balance.chargeback(1.into()).is_ok());
-
             assert_eq!(balance.held, 199.into());
         }
     }
 
-    mod overflow {
+    mod overflow_with_non_negative_type {
         use crate::{
             NonNegativeCheckedDecimal,
             balances::{Error, tests::new_balance},
