@@ -102,6 +102,7 @@ impl Balances {
 #[cfg(test)]
 mod tests {
     use crate::{Balances, NonNegative};
+    use test_case::test_case;
 
     fn new_balance(available: NonNegative, held: NonNegative) -> Balances {
         Balances::new_with_values(available, held)
@@ -215,5 +216,16 @@ mod tests {
                 Err(Error::ArithmeticOverflow)
             ));
         }
+    }
+
+    #[test_case(100, 200, 50 => Some((NonNegative::from(50), NonNegative::from(250))))]
+    #[test_case(10, 100, 10 => Some((NonNegative::from(0), NonNegative::from(110))))]
+    #[test_case(10, 100, 50 => None)]
+    fn transfer(from: u32, to: u32, amount: u32) -> Option<(NonNegative, NonNegative)> {
+        let from: NonNegative = from.into();
+        let to: NonNegative = to.into();
+        let amount: NonNegative = amount.into();
+
+        Balances::transfer(from, to, amount)
     }
 }
