@@ -1,4 +1,4 @@
-use crate::transaction::{Deposit, Transaction};
+use crate::transaction::{Deposit, TransactionPayload};
 
 pub trait DepositValueCache<MonetaryValue>
 where
@@ -10,7 +10,7 @@ where
     fn insert(
         &mut self,
         id: u32,
-        tx: Transaction<Deposit, MonetaryValue>,
+        tx: TransactionPayload<Deposit, MonetaryValue>,
     ) -> Result<(), Self::Error>;
 
     #[allow(dead_code)]

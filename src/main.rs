@@ -6,11 +6,10 @@ use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
 use non_negative_checked_decimal::NonNegativeCheckedDecimal;
-use serde::{Deserialize, Serialize};
 use stream_processor::StreamProcessor;
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-use transaction::TxType;
+use transaction::{InputCsvTransaction, OutputCsvTransaction, TransactionCsvType};
 
 mod balances;
 mod client_processor;
@@ -21,46 +20,6 @@ mod stream_processor;
 #[cfg(test)]
 mod tests;
 mod transaction;
-
-#[derive(Clone, Debug, Deserialize)]
-struct InputRecord<MonetaryValue> {
-    #[serde(rename = "type", deserialize_with = "TxType::from_deserializer")]
-    kind: TxType,
-    client: u16,
-    tx: u32,
-    amount: Option<MonetaryValue>,
-}
-
-#[derive(Debug, Serialize)]
-struct OutputRecord<MonetaryValue> {
-    client: u16,
-    available: MonetaryValue,
-    held: MonetaryValue,
-    total: MonetaryValue,
-    locked: bool,
-}
-
-impl<MonetaryValue> TryFrom<ClientState<MonetaryValue>> for OutputRecord<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
-    type Error = anyhow::Error;
-
-    fn try_from(client_state: ClientState<MonetaryValue>) -> Result<Self, Self::Error> {
-        let balances = client_state.balances();
-        let total = balances.available().add(balances.held());
-        let Some(total) = total else {
-            return Err(anyhow::anyhow!("total balance overflow"));
-        };
-        Ok(Self {
-            client: client_state.client(),
-            available: balances.available(),
-            held: balances.held(),
-            total,
-            locked: client_state.locked(),
-        })
-    }
-}
 
 // `anyhow` only used in the main module for easier integration between
 // operating system and ?-based error handling.
@@ -79,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
         .has_headers(true)
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
-    let mut input = csv_reader.deserialize::<InputRecord<NonNegativeCheckedDecimal>>();
+    let mut input = csv_reader.deserialize::<InputCsvTransaction<NonNegativeCheckedDecimal>>();
 
     let mut stream_processor = StreamProcessor::new();
     let mut results = stream_processor.process(&mut input).await; // ?;
@@ -88,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
     while let Some(client_state) = results.next().await {
         match client_state {
             Ok(client_state) => {
-                let Ok(record): Result<OutputRecord<NonNegativeCheckedDecimal>, _> =
+                let Ok(record): Result<OutputCsvTransaction<NonNegativeCheckedDecimal>, _> =
                     client_state.try_into()
                 else {
                     //tracing::error!(%_err);

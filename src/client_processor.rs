@@ -13,15 +13,15 @@ use crate::{
     balances::BalanceUpdater,
     db::DepositValueCache,
     error::Error,
-    transaction::{Chargeback, Deposit, Dispute, Resolve, Transaction, Tx, Withdrawal},
+    transaction::{Chargeback, Deposit, Dispute, Resolve, TransactionPayload, Transaction, Withdrawal},
 };
 
-pub(super) enum TxProcessingOutcome {
+pub(super) enum TransactionProcessingOutcome {
     LockAccount,
     NoAction,
 }
 
-pub(super) trait TransactionKind<Database, MonetaryValue>
+pub(super) trait TransactionProcessor<Database, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -29,11 +29,11 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error>;
+    ) -> Result<TransactionProcessingOutcome, Error>;
 }
 
-impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
-    for Transaction<Deposit, MonetaryValue>
+impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
+    for TransactionPayload<Deposit, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -41,7 +41,7 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error> {
+    ) -> Result<TransactionProcessingOutcome, Error> {
         let amount = self.amount();
         let id = self.tx();
         processor
@@ -52,12 +52,12 @@ where
             .db
             .insert(self.tx(), self)
             .map_err(|_| Error::DuplicatedTransaction { id })?;
-        Ok(TxProcessingOutcome::NoAction)
+        Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
-    for Transaction<Withdrawal, MonetaryValue>
+impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
+    for TransactionPayload<Withdrawal, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -65,15 +65,15 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error> {
+    ) -> Result<TransactionProcessingOutcome, Error> {
         let amount = self.amount();
         processor.balances.withdrawal(*amount)?;
-        Ok(TxProcessingOutcome::NoAction)
+        Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
-    for Transaction<Dispute, MonetaryValue>
+impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
+    for TransactionPayload<Dispute, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -81,9 +81,9 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error> {
+    ) -> Result<TransactionProcessingOutcome, Error> {
         if processor.disputed.contains_key(&self.tx()) {
-            return Ok(TxProcessingOutcome::NoAction);
+            return Ok(TransactionProcessingOutcome::NoAction);
         }
         if let Some(amount) = processor.db.get(&self.tx()) {
             processor.balances.dispute(*amount)?;
@@ -92,12 +92,12 @@ where
             // indefinitely. We should probably limit the amount of simultaneous disputes.
             processor.disputed.insert(self.tx(), *amount);
         };
-        Ok(TxProcessingOutcome::NoAction)
+        Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
-    for Transaction<Resolve, MonetaryValue>
+impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
+    for TransactionPayload<Resolve, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -105,17 +105,17 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error> {
+    ) -> Result<TransactionProcessingOutcome, Error> {
         if let Some(amount) = processor.disputed.get(&self.tx()) {
             processor.balances.resolve(*amount)?;
             processor.disputed.remove(&self.tx());
         };
-        Ok(TxProcessingOutcome::NoAction)
+        Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionKind<Database, MonetaryValue>
-    for Transaction<Chargeback, MonetaryValue>
+impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
+    for TransactionPayload<Chargeback, MonetaryValue>
 where
     Database: DepositValueCache<MonetaryValue>,
     MonetaryValue: BalanceUpdater + Copy,
@@ -123,13 +123,13 @@ where
     fn process(
         self,
         processor: &mut ClientProcessor<Database, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error> {
+    ) -> Result<TransactionProcessingOutcome, Error> {
         if let Some(amount) = processor.disputed.get(&self.tx()) {
             processor.balances.chargeback(*amount)?;
             processor.disputed.remove(&self.tx());
-            return Ok(TxProcessingOutcome::LockAccount);
+            return Ok(TransactionProcessingOutcome::LockAccount);
         };
-        Ok(TxProcessingOutcome::NoAction)
+        Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
@@ -179,7 +179,7 @@ where
     // compared to the total number of transactions.
     disputed: HashMap<u32, MonetaryValue>,
     // The channel to receive transactions from the stream processor.
-    tx_receiver: mpsc::Receiver<Tx<MonetaryValue>>,
+    tx_receiver: mpsc::Receiver<Transaction<MonetaryValue>>,
     // The channel to send the result back to the stream processor.
     result_sender: Option<oneshot::Sender<ClientState<MonetaryValue>>>,
 }
@@ -192,7 +192,7 @@ where
     pub(super) fn new(
         client: u16,
         db: Database,
-        tx_receiver: mpsc::Receiver<Tx<MonetaryValue>>,
+        tx_receiver: mpsc::Receiver<Transaction<MonetaryValue>>,
         result_sender: oneshot::Sender<ClientState<MonetaryValue>>,
     ) -> Self {
         Self {
@@ -206,12 +206,12 @@ where
         }
     }
 
-    fn process_tx<Kind>(
+    fn process<Kind>(
         &mut self,
-        tx: Transaction<Kind, MonetaryValue>,
-    ) -> Result<TxProcessingOutcome, Error>
+        tx: TransactionPayload<Kind, MonetaryValue>,
+    ) -> Result<TransactionProcessingOutcome, Error>
     where
-        Transaction<Kind, MonetaryValue>: TransactionKind<Database, MonetaryValue>,
+        TransactionPayload<Kind, MonetaryValue>: TransactionProcessor<Database, MonetaryValue>,
     {
         tx.process(self)
     }
@@ -220,15 +220,15 @@ where
         while let Some(tx) = self.tx_receiver.recv().await {
             if !self.locked {
                 let tx_process_result = match tx {
-                    Tx::Deposit(tx) => self.process_tx(tx),
-                    Tx::Withdrawal(tx) => self.process_tx(tx),
-                    Tx::Dispute(tx) => self.process_tx(tx),
-                    Tx::Resolve(tx) => self.process_tx(tx),
-                    Tx::Chargeback(tx) => self.process_tx(tx),
+                    Transaction::Deposit(tx) => self.process(tx),
+                    Transaction::Withdrawal(tx) => self.process(tx),
+                    Transaction::Dispute(tx) => self.process(tx),
+                    Transaction::Resolve(tx) => self.process(tx),
+                    Transaction::Chargeback(tx) => self.process(tx),
                 };
                 match tx_process_result {
                     Ok(outcome) => {
-                        if let TxProcessingOutcome::LockAccount = outcome {
+                        if let TransactionProcessingOutcome::LockAccount = outcome {
                             self.locked = true;
                         }
                     }

@@ -11,10 +11,10 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    BalanceUpdater, ClientProcessor, InputRecord,
+    BalanceUpdater, ClientProcessor, InputCsvTransaction,
     client_processor::ClientState,
     in_mem,
-    transaction::{Chargeback, Deposit, Dispute, Resolve, Transaction, Tx, Withdrawal},
+    transaction::Transaction,
 };
 
 // TODO: This could potentially be a config option to adjust the backpressure
@@ -32,7 +32,7 @@ where
     #[error(transparent)]
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
-    Tokio(#[from] tokio::sync::mpsc::error::SendError<Tx<MonetaryValue>>),
+    Tokio(#[from] tokio::sync::mpsc::error::SendError<Transaction<MonetaryValue>>),
     #[error("could not receive results for client {client}: {reason}")]
     CouldNotReceiveResults { client: u16, reason: String },
     #[error("deposit must have an amount")]
@@ -58,44 +58,9 @@ where
     // - Use LRU cache - keep only N processors alive and reuse them.
     //   Persist a state of the processor when it is not used and
     //   restore when it is needed again.
-    client_processors: HashMap<u16, mpsc::Sender<Tx<MonetaryValue>>>,
+    client_processors: HashMap<u16, mpsc::Sender<Transaction<MonetaryValue>>>,
 
     result_receivers: HashMap<u16, oneshot::Receiver<ClientState<MonetaryValue>>>,
-}
-
-fn try_tx_from_record<MonetaryValue>(
-    record: &InputRecord<MonetaryValue>,
-) -> Result<Tx<MonetaryValue>, Error<MonetaryValue>>
-where
-    MonetaryValue: Copy,
-{
-    match record.kind {
-        crate::TxType::Deposit => {
-            let amount = record.amount.ok_or(Error::DepositMustHaveAmount)?;
-            Ok(Tx::Deposit(Transaction::<Deposit, MonetaryValue>::new(
-                record.client,
-                record.tx,
-                amount,
-            )))
-        }
-        crate::TxType::Withdrawal => {
-            let amount = record.amount.ok_or(Error::WithdrawalMustHaveAmount)?;
-            Ok(Tx::Withdrawal(
-                Transaction::<Withdrawal, MonetaryValue>::new(record.client, record.tx, amount),
-            ))
-        }
-        crate::TxType::Dispute => Ok(Tx::Dispute(Transaction::<Dispute, MonetaryValue>::new(
-            record.client,
-            record.tx,
-        ))),
-        crate::TxType::Resolve => Ok(Tx::Resolve(Transaction::<Resolve, MonetaryValue>::new(
-            record.client,
-            record.tx,
-        ))),
-        crate::TxType::Chargeback => Ok(Tx::Chargeback(
-            Transaction::<Chargeback, MonetaryValue>::new(record.client, record.tx),
-        )),
-    }
 }
 
 impl<MonetaryValue> StreamProcessor<MonetaryValue>
@@ -114,7 +79,7 @@ where
         mut stream: S,
     ) -> impl Stream<Item = ClientResult<MonetaryValue>>
     where
-        S: Stream<Item = Result<InputRecord<MonetaryValue>, csv_async::Error>> + Unpin,
+        S: Stream<Item = Result<InputCsvTransaction<MonetaryValue>, csv_async::Error>> + Unpin,
     {
         // Use usize so that we can basically ignore potential overflows. If there
         // are more than usize::MAX transactions in flight, we have bigger problems
@@ -126,7 +91,7 @@ where
                 //tracing::error!("csv record error");
                 continue;
             };
-            let Ok(tx) = try_tx_from_record(&record) else {
+            let Ok(tx): Result<Transaction<MonetaryValue>, _> = record.try_into() else {
                 //tracing::error!("invalid transaction in csv");
                 continue;
             };
@@ -185,9 +150,9 @@ where
 }
 
 async fn send_and_register<MonetaryValue>(
-    tx: Tx<MonetaryValue>,
+    tx: Transaction<MonetaryValue>,
     active_tx_clone: Arc<AtomicUsize>,
-    sender: &mpsc::Sender<Tx<MonetaryValue>>,
+    sender: &mpsc::Sender<Transaction<MonetaryValue>>,
 ) where
     MonetaryValue: BalanceUpdater + Copy + Send + 'static,
 {

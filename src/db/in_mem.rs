@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::transaction::{Deposit, Transaction};
+use crate::transaction::{Deposit, TransactionPayload};
 
 use super::DepositValueCache;
 
@@ -43,7 +43,7 @@ where
     fn insert(
         &mut self,
         id: u32,
-        tx: Transaction<Deposit, MonetaryValue>,
+        tx: TransactionPayload<Deposit, MonetaryValue>,
     ) -> Result<(), Self::Error>
     where
         MonetaryValue: Copy,
