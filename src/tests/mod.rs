@@ -30,7 +30,7 @@ fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec
 }
 
 const SCENARIOS_PATH: &str = "./src/tests/scenarios";
-const EXPECTED_SCENARIO_COUNT: usize = 27;
+const EXPECTED_SCENARIO_COUNT: usize = 29;
 
 async fn csv_deserializer_from_file<P: AsRef<Path>>(
     path: P,
