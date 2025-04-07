@@ -65,22 +65,5 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Overflow checks
-// Test with chained streams from multiple files
-// Introduce rate limiting?
-// Pin toolchain
-
 // Tests:
-// Test with garbage input
 // 1. withdrawal - no existing client
-
-// Additional assumptions:
-// - The balance can not be negative
-// - Locked account can not process any transactions (including disputes, resolves, etc.)
-// - There is a limited time window for the dispute to be raised
-// - Only deposits can be disputed - stems from the fact how the dispute is described in the requirements
-// - User can dispute a transaction again after the dispute is resolved
-// - Transactions that lead to incorrect state (arithmetic overflow, etc.) are silently ignored (not to accidentally
-//   pollute stdout). At the end of the day, these would deserve a proper handling.
-//   Commented `tracing` placeholders are left in the code.
-// - Strings representing transaction names are case insensitive (e.g. "Deposit" and "deposit" are the same)
