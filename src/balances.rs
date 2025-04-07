@@ -5,6 +5,8 @@
 
 use thiserror::Error;
 
+use crate::NonNegative;
+
 #[derive(Error, Debug)]
 pub(super) enum Error {
     #[error("Arithmetic overflow when updating balances")]
@@ -21,41 +23,35 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct Balances<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
-    available: MonetaryValue,
-    held: MonetaryValue,
+pub(super) struct Balances {
+    available: NonNegative,
+    held: NonNegative,
 }
 
-impl<MonetaryValue> Balances<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
+impl Balances {
     pub(super) fn new() -> Self {
         Self {
-            available: MonetaryValue::new(),
-            held: MonetaryValue::new(),
+            available: NonNegative::new(),
+            held: NonNegative::new(),
         }
     }
 
     #[cfg(test)]
-    fn new_with_values(available: MonetaryValue, held: MonetaryValue) -> Self {
+    fn new_with_values(available: NonNegative, held: NonNegative) -> Self {
         Self { available, held }
     }
 
     fn transfer(
-        from: MonetaryValue,
-        to: MonetaryValue,
-        amount: MonetaryValue,
-    ) -> Option<(MonetaryValue, MonetaryValue)> {
+        from: NonNegative,
+        to: NonNegative,
+        amount: NonNegative,
+    ) -> Option<(NonNegative, NonNegative)> {
         let new_from = from.sub(amount)?;
         let new_to = to.add(amount)?;
         Some((new_from, new_to))
     }
 
-    pub(super) fn deposit(&mut self, amount: MonetaryValue) -> Result<(), Error> {
+    pub(super) fn deposit(&mut self, amount: NonNegative) -> Result<(), Error> {
         self.available = self
             .available
             .add(amount)
@@ -63,7 +59,7 @@ where
         Ok(())
     }
 
-    pub(super) fn withdrawal(&mut self, amount: MonetaryValue) -> Result<(), Error> {
+    pub(super) fn withdrawal(&mut self, amount: NonNegative) -> Result<(), Error> {
         self.available = self
             .available
             .sub(amount)
@@ -71,7 +67,7 @@ where
         Ok(())
     }
 
-    pub(super) fn dispute(&mut self, amount: MonetaryValue) -> Result<(), Error> {
+    pub(super) fn dispute(&mut self, amount: NonNegative) -> Result<(), Error> {
         let (new_available, new_held) =
             Self::transfer(self.available, self.held, amount).ok_or(Error::ArithmeticOverflow)?;
 
@@ -80,7 +76,7 @@ where
         Ok(())
     }
 
-    pub(super) fn resolve(&mut self, amount: MonetaryValue) -> Result<(), Error> {
+    pub(super) fn resolve(&mut self, amount: NonNegative) -> Result<(), Error> {
         let (new_held, new_available) =
             Self::transfer(self.held, self.available, amount).ok_or(Error::ArithmeticOverflow)?;
 
@@ -89,28 +85,25 @@ where
         Ok(())
     }
 
-    pub(super) fn chargeback(&mut self, amount: MonetaryValue) -> Result<(), Error> {
+    pub(super) fn chargeback(&mut self, amount: NonNegative) -> Result<(), Error> {
         self.held = self.held.sub(amount).ok_or(Error::ArithmeticOverflow)?;
         Ok(())
     }
 
-    pub(super) fn available(&self) -> MonetaryValue {
+    pub(super) fn available(&self) -> NonNegative {
         self.available
     }
 
-    pub(super) fn held(&self) -> MonetaryValue {
+    pub(super) fn held(&self) -> NonNegative {
         self.held
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Balances, NonNegativeCheckedDecimal};
+    use crate::{Balances, NonNegative};
 
-    fn new_balance(
-        available: NonNegativeCheckedDecimal,
-        held: NonNegativeCheckedDecimal,
-    ) -> Balances<NonNegativeCheckedDecimal> {
+    fn new_balance(available: NonNegative, held: NonNegative) -> Balances {
         Balances::new_with_values(available, held)
     }
 
@@ -162,13 +155,13 @@ mod tests {
 
     mod overflow_with_non_negative_type {
         use crate::{
-            NonNegativeCheckedDecimal,
+            NonNegative,
             balances::{Error, tests::new_balance},
         };
 
         #[test]
         fn deposit() {
-            let mut balance = new_balance(NonNegativeCheckedDecimal::MAX, 100.into());
+            let mut balance = new_balance(NonNegative::MAX, 100.into());
             assert!(matches!(
                 balance.deposit(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -177,7 +170,7 @@ mod tests {
 
         #[test]
         fn withdrawal() {
-            let mut balance = new_balance(NonNegativeCheckedDecimal::MIN, 100.into());
+            let mut balance = new_balance(NonNegative::MIN, 100.into());
             assert!(matches!(
                 balance.withdrawal(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -186,13 +179,13 @@ mod tests {
 
         #[test]
         fn dispute() {
-            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MAX);
+            let mut balance = new_balance(100.into(), NonNegative::MAX);
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(NonNegativeCheckedDecimal::MIN, 100.into());
+            let mut balance = new_balance(NonNegative::MIN, 100.into());
             assert!(matches!(
                 balance.dispute(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -201,13 +194,13 @@ mod tests {
 
         #[test]
         fn resolve() {
-            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MIN);
+            let mut balance = new_balance(100.into(), NonNegative::MIN);
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
             ));
 
-            let mut balance = new_balance(NonNegativeCheckedDecimal::MAX, 100.into());
+            let mut balance = new_balance(NonNegative::MAX, 100.into());
             assert!(matches!(
                 balance.resolve(1.into()),
                 Err(Error::ArithmeticOverflow)
@@ -216,7 +209,7 @@ mod tests {
 
         #[test]
         fn chargeback() {
-            let mut balance = new_balance(100.into(), NonNegativeCheckedDecimal::MIN);
+            let mut balance = new_balance(100.into(), NonNegative::MIN);
             assert!(matches!(
                 balance.chargeback(1.into()),
                 Err(Error::ArithmeticOverflow)

@@ -14,8 +14,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    Balances,
-    balances::BalanceUpdater,
+    Balances, NonZero,
     db::DepositValueCache,
     error::Error,
     transaction::{
@@ -28,32 +27,29 @@ pub(super) enum TransactionProcessingOutcome {
     NoAction,
 }
 
-pub(super) trait TransactionProcessor<Database, MonetaryValue>
+pub(super) trait TransactionProcessor<Database>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error>;
 }
 
-impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
-    for TransactionPayload<Deposit, MonetaryValue>
+impl<Database> TransactionProcessor<Database> for TransactionPayload<Deposit>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error> {
         let amount = self.amount();
         let id = self.tx();
         processor
             .balances
-            .deposit(*amount)
+            .deposit(amount.into())
             .map_err(|_| Error::InvalidTransaction { id })?;
         processor
             .db
@@ -63,37 +59,33 @@ where
     }
 }
 
-impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
-    for TransactionPayload<Withdrawal, MonetaryValue>
+impl<Database> TransactionProcessor<Database> for TransactionPayload<Withdrawal>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error> {
         let amount = self.amount();
-        processor.balances.withdrawal(*amount)?;
+        processor.balances.withdrawal(amount.into())?;
         Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
-    for TransactionPayload<Dispute, MonetaryValue>
+impl<Database> TransactionProcessor<Database> for TransactionPayload<Dispute>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error> {
         if processor.disputed.contains_key(&self.tx()) {
             return Ok(TransactionProcessingOutcome::NoAction);
         }
         if let Some(amount) = processor.db.get(&self.tx()) {
-            processor.balances.dispute(*amount)?;
+            processor.balances.dispute(amount.into())?;
             // TODO: Attack vector. One could try to dispute millions of transactions
             // and never submit `resolve` or `chargeback`, trying to grow this map
             // indefinitely. We should probably limit the amount of simultaneous disputes.
@@ -103,36 +95,32 @@ where
     }
 }
 
-impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
-    for TransactionPayload<Resolve, MonetaryValue>
+impl<Database> TransactionProcessor<Database> for TransactionPayload<Resolve>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error> {
         if let Some(amount) = processor.disputed.get(&self.tx()) {
-            processor.balances.resolve(*amount)?;
+            processor.balances.resolve(amount.into())?;
             processor.disputed.remove(&self.tx());
         };
         Ok(TransactionProcessingOutcome::NoAction)
     }
 }
 
-impl<Database, MonetaryValue> TransactionProcessor<Database, MonetaryValue>
-    for TransactionPayload<Chargeback, MonetaryValue>
+impl<Database> TransactionProcessor<Database> for TransactionPayload<Chargeback>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     fn process(
         self,
-        processor: &mut ClientProcessor<Database, MonetaryValue>,
+        processor: &mut ClientProcessor<Database>,
     ) -> Result<TransactionProcessingOutcome, Error> {
         if let Some(amount) = processor.disputed.get(&self.tx()) {
-            processor.balances.chargeback(*amount)?;
+            processor.balances.chargeback(amount.into())?;
             processor.disputed.remove(&self.tx());
             return Ok(TransactionProcessingOutcome::LockAccount);
         };
@@ -141,20 +129,14 @@ where
 }
 
 /// Represents the final client state after all transactions have been processed.
-pub(super) struct ClientState<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
+pub(super) struct ClientState {
     client: u16,
     locked: bool,
-    balances: Balances<MonetaryValue>,
+    balances: Balances,
 }
 
-impl<MonetaryValue> ClientState<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
-    pub(super) fn balances(&self) -> &Balances<MonetaryValue> {
+impl ClientState {
+    pub(super) fn balances(&self) -> &Balances {
         &self.balances
     }
 
@@ -167,15 +149,14 @@ where
     }
 }
 
-pub(super) struct ClientProcessor<Database, MonetaryValue>
+pub(super) struct ClientProcessor<Database>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     // Client ID
     client: u16,
     // Each client takes care of its own balance.
-    balances: Balances<MonetaryValue>,
+    balances: Balances,
     // The account is locked if there was a chargeback.
     locked: bool,
     // Abstracted database. It could be anything that can store and retrieve
@@ -185,23 +166,22 @@ where
     // The map of amounts being disputed. It is not abstracted due to the
     // assumption that there will be a limited number of active disputes
     // compared to the total number of transactions.
-    disputed: HashMap<u32, MonetaryValue>,
+    disputed: HashMap<u32, NonZero>,
     // The channel to receive transactions from the stream processor.
-    tx_receiver: mpsc::Receiver<Transaction<MonetaryValue>>,
+    tx_receiver: mpsc::Receiver<Transaction>,
     // The channel to send the result back to the stream processor.
-    result_sender: Option<oneshot::Sender<ClientState<MonetaryValue>>>,
+    result_sender: Option<oneshot::Sender<ClientState>>,
 }
 
-impl<Database, MonetaryValue> ClientProcessor<Database, MonetaryValue>
+impl<Database> ClientProcessor<Database>
 where
-    Database: DepositValueCache<MonetaryValue>,
-    MonetaryValue: BalanceUpdater + Copy,
+    Database: DepositValueCache<NonZero>,
 {
     pub(super) fn new(
         client: u16,
         db: Database,
-        tx_receiver: mpsc::Receiver<Transaction<MonetaryValue>>,
-        result_sender: oneshot::Sender<ClientState<MonetaryValue>>,
+        tx_receiver: mpsc::Receiver<Transaction>,
+        result_sender: oneshot::Sender<ClientState>,
     ) -> Self {
         Self {
             client,
@@ -216,10 +196,10 @@ where
 
     fn process<Kind>(
         &mut self,
-        tx: TransactionPayload<Kind, MonetaryValue>,
+        tx: TransactionPayload<Kind>,
     ) -> Result<TransactionProcessingOutcome, Error>
     where
-        TransactionPayload<Kind, MonetaryValue>: TransactionProcessor<Database, MonetaryValue>,
+        TransactionPayload<Kind>: TransactionProcessor<Database>,
     {
         tx.process(self)
     }

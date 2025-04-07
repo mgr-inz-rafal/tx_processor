@@ -5,7 +5,10 @@
 
 use std::collections::HashMap;
 
-use crate::transaction::{Deposit, TransactionPayload};
+use crate::{
+    NonZero,
+    transaction::{Deposit, TransactionPayload},
+};
 
 use super::DepositValueCache;
 
@@ -21,12 +24,12 @@ pub(super) enum PruningStrategy {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AmountCache<MonetaryValue> {
-    txs: HashMap<u32, MonetaryValue>,
+pub(crate) struct AmountCache {
+    txs: HashMap<u32, NonZero>,
     pruning_strategy: Option<PruningStrategy>,
 }
 
-impl<MonetaryValue> AmountCache<MonetaryValue> {
+impl AmountCache {
     pub(crate) fn new() -> Self {
         Self {
             txs: HashMap::new(),
@@ -35,24 +38,14 @@ impl<MonetaryValue> AmountCache<MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> DepositValueCache<MonetaryValue> for AmountCache<MonetaryValue>
-where
-    MonetaryValue: Copy,
-{
+impl DepositValueCache<NonZero> for AmountCache {
     type Error = Error;
 
-    fn get(&self, id: &u32) -> Option<&MonetaryValue> {
+    fn get(&self, id: &u32) -> Option<&NonZero> {
         self.txs.get(id)
     }
 
-    fn insert(
-        &mut self,
-        id: u32,
-        tx: TransactionPayload<Deposit, MonetaryValue>,
-    ) -> Result<(), Self::Error>
-    where
-        MonetaryValue: Copy,
-    {
+    fn insert(&mut self, id: u32, tx: TransactionPayload<Deposit>) -> Result<(), Self::Error> {
         if let Some(strategy) = &self.pruning_strategy {
             match strategy {
                 PruningStrategy::Size { max_size: _ } | PruningStrategy::Ttl { duration: _ } => {
@@ -70,7 +63,7 @@ where
 
     #[allow(dead_code)]
     // To could be helpful when pruning is implemented.
-    fn remove(&mut self, id: u32) -> Option<MonetaryValue> {
+    fn remove(&mut self, id: u32) -> Option<NonZero> {
         self.txs.remove(&id)
     }
 }

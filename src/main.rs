@@ -1,21 +1,22 @@
 use std::env;
 
 use balances::{BalanceUpdater, Balances};
+use checked_decimal::{NonNegative, NonZero};
 use client_processor::ClientProcessor;
 use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
-use non_negative_checked_decimal::NonNegativeCheckedDecimal;
+use rust_decimal::Decimal;
 use stream_processor::{OutputClientData, StreamProcessor};
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use transaction::{InputCsvTransaction, TransactionCsvType};
 
 mod balances;
+mod checked_decimal;
 mod client_processor;
 mod db;
 mod error;
-mod non_negative_checked_decimal;
 mod stream_processor;
 #[cfg(test)]
 mod tests;
@@ -38,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
         .has_headers(true)
         .trim(csv_async::Trim::All)
         .create_deserializer(file);
-    let mut input = csv_reader.deserialize::<InputCsvTransaction<NonNegativeCheckedDecimal>>();
+    let mut input = csv_reader.deserialize::<InputCsvTransaction<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
     let mut results = stream_processor.process(&mut input).await; // ?;
@@ -47,9 +48,7 @@ async fn main() -> anyhow::Result<()> {
     while let Some(client_state) = results.next().await {
         match client_state {
             Ok(client_state) => {
-                let Ok(record): Result<OutputClientData<NonNegativeCheckedDecimal>, _> =
-                    client_state.try_into()
-                else {
+                let Ok(record): Result<OutputClientData, _> = client_state.try_into() else {
                     //tracing::error!(%_err);
                     continue;
                 };
@@ -67,3 +66,8 @@ async fn main() -> anyhow::Result<()> {
 
 // Tests:
 // 1. withdrawal - no existing client
+// unit for atomic update of two values
+// for nonzero
+
+// Abstract Decimal
+// remove the "checkeddecimal" suffix

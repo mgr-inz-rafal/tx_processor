@@ -1,8 +1,9 @@
 //! A module consisting of types and functions to handle transactions.
 
+use rust_decimal::Decimal;
 use serde::Deserialize;
 
-use crate::stream_processor::Error;
+use crate::{NonZero, stream_processor::Error};
 
 pub struct Deposit;
 pub struct Withdrawal;
@@ -11,15 +12,15 @@ pub struct Resolve;
 pub struct Chargeback;
 
 // The main transaction type.
-pub(super) enum Transaction<MonetaryValue> {
-    Deposit(TransactionPayload<Deposit, MonetaryValue>),
-    Withdrawal(TransactionPayload<Withdrawal, MonetaryValue>),
-    Dispute(TransactionPayload<Dispute, MonetaryValue>),
-    Resolve(TransactionPayload<Resolve, MonetaryValue>),
-    Chargeback(TransactionPayload<Chargeback, MonetaryValue>),
+pub(super) enum Transaction {
+    Deposit(TransactionPayload<Deposit>),
+    Withdrawal(TransactionPayload<Withdrawal>),
+    Dispute(TransactionPayload<Dispute>),
+    Resolve(TransactionPayload<Resolve>),
+    Chargeback(TransactionPayload<Chargeback>),
 }
 
-impl<MonetaryValue> Transaction<MonetaryValue> {
+impl Transaction {
     pub(super) fn client(&self) -> u16 {
         match self {
             Self::Deposit(tx) => tx.client(),
@@ -32,16 +33,16 @@ impl<MonetaryValue> Transaction<MonetaryValue> {
 }
 
 // Payload (metadata) of the transaction.
-pub(super) struct TransactionPayload<Kind, MonetaryValue> {
+pub(super) struct TransactionPayload<Kind> {
     client: u16,
     tx: u32,
     // Option, since not all types of transactions have an amount.
     // The `Kind` type parameter ensures that this is correctly handled.
-    amount: Option<MonetaryValue>,
+    amount: Option<NonZero>,
     phantom: std::marker::PhantomData<Kind>,
 }
 
-impl<Kind, MonetaryValue> TransactionPayload<Kind, MonetaryValue> {
+impl<Kind> TransactionPayload<Kind> {
     pub(super) fn client(&self) -> u16 {
         self.client
     }
@@ -51,8 +52,8 @@ impl<Kind, MonetaryValue> TransactionPayload<Kind, MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> TransactionPayload<Deposit, MonetaryValue> {
-    pub(super) fn new(client: u16, tx: u32, amount: MonetaryValue) -> Self {
+impl TransactionPayload<Deposit> {
+    pub(super) fn new(client: u16, tx: u32, amount: NonZero) -> Self {
         Self {
             tx,
             client,
@@ -61,15 +62,15 @@ impl<MonetaryValue> TransactionPayload<Deposit, MonetaryValue> {
         }
     }
 
-    pub(super) fn amount(&self) -> &MonetaryValue {
+    pub(super) fn amount(&self) -> &NonZero {
         self.amount
             .as_ref()
             .expect("amount guaranteed to be present")
     }
 }
 
-impl<MonetaryValue> TransactionPayload<Withdrawal, MonetaryValue> {
-    pub(super) fn new(client: u16, tx: u32, amount: MonetaryValue) -> Self {
+impl TransactionPayload<Withdrawal> {
+    pub(super) fn new(client: u16, tx: u32, amount: NonZero) -> Self {
         Self {
             tx,
             client,
@@ -78,14 +79,14 @@ impl<MonetaryValue> TransactionPayload<Withdrawal, MonetaryValue> {
         }
     }
 
-    pub(super) fn amount(&self) -> &MonetaryValue {
+    pub(super) fn amount(&self) -> &NonZero {
         self.amount
             .as_ref()
             .expect("amount guaranteed to be present")
     }
 }
 
-impl<MonetaryValue> TransactionPayload<Dispute, MonetaryValue> {
+impl TransactionPayload<Dispute> {
     pub(super) fn new(client: u16, tx: u32) -> Self {
         Self {
             tx,
@@ -96,7 +97,7 @@ impl<MonetaryValue> TransactionPayload<Dispute, MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> TransactionPayload<Resolve, MonetaryValue> {
+impl TransactionPayload<Resolve> {
     pub(super) fn new(client: u16, tx: u32) -> Self {
         Self {
             tx,
@@ -107,7 +108,7 @@ impl<MonetaryValue> TransactionPayload<Resolve, MonetaryValue> {
     }
 }
 
-impl<MonetaryValue> TransactionPayload<Chargeback, MonetaryValue> {
+impl TransactionPayload<Chargeback> {
     pub(super) fn new(client: u16, tx: u32) -> Self {
         Self {
             tx,
@@ -166,54 +167,48 @@ pub(super) struct InputCsvTransaction<MonetaryValue> {
     amount: Option<MonetaryValue>,
 }
 
-impl<MonetaryValue> TryFrom<InputCsvTransaction<MonetaryValue>> for Transaction<MonetaryValue>
-where
-    MonetaryValue: Copy,
-{
-    type Error = Error<MonetaryValue>;
+impl TryFrom<InputCsvTransaction<Decimal>> for Transaction {
+    type Error = Error;
 
-    fn try_from(value: InputCsvTransaction<MonetaryValue>) -> Result<Self, Self::Error> {
+    fn try_from(value: InputCsvTransaction<Decimal>) -> Result<Self, Self::Error> {
         match value.kind {
             crate::TransactionCsvType::Deposit => {
                 let amount = value.amount.ok_or(Error::DepositMustHaveAmount)?;
-                Ok(Transaction::Deposit(TransactionPayload::<
-                    Deposit,
-                    MonetaryValue,
-                >::new(
-                    value.client, value.tx, amount
+                Ok(Transaction::Deposit(TransactionPayload::<Deposit>::new(
+                    value.client,
+                    value.tx,
+                    amount
+                        .try_into()
+                        .map_err(|_| Error::DepositMustHaveNonZeroAmount)?,
                 )))
             }
             crate::TransactionCsvType::Withdrawal => {
                 let amount = value.amount.ok_or(Error::WithdrawalMustHaveAmount)?;
-                Ok(Transaction::Withdrawal(TransactionPayload::<
-                    Withdrawal,
-                    MonetaryValue,
-                >::new(
-                    value.client, value.tx, amount
+                Ok(Transaction::Withdrawal(
+                    TransactionPayload::<Withdrawal>::new(
+                        value.client,
+                        value.tx,
+                        amount
+                            .try_into()
+                            .map_err(|_| Error::WithdrawalMustHaveNonZeroAmount)?,
+                    ),
+                ))
+            }
+            crate::TransactionCsvType::Dispute => {
+                Ok(Transaction::Dispute(TransactionPayload::<Dispute>::new(
+                    value.client,
+                    value.tx,
                 )))
             }
-            crate::TransactionCsvType::Dispute => Ok(Transaction::Dispute(TransactionPayload::<
-                Dispute,
-                MonetaryValue,
-            >::new(
-                value.client,
-                value.tx,
-            ))),
-            crate::TransactionCsvType::Resolve => Ok(Transaction::Resolve(TransactionPayload::<
-                Resolve,
-                MonetaryValue,
-            >::new(
-                value.client,
-                value.tx,
-            ))),
-            crate::TransactionCsvType::Chargeback => {
-                Ok(Transaction::Chargeback(TransactionPayload::<
-                    Chargeback,
-                    MonetaryValue,
-                >::new(
-                    value.client, value.tx
+            crate::TransactionCsvType::Resolve => {
+                Ok(Transaction::Resolve(TransactionPayload::<Resolve>::new(
+                    value.client,
+                    value.tx,
                 )))
             }
+            crate::TransactionCsvType::Chargeback => Ok(Transaction::Chargeback(
+                TransactionPayload::<Chargeback>::new(value.client, value.tx),
+            )),
         }
     }
 }

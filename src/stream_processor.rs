@@ -10,33 +10,31 @@ use std::{
 };
 
 use futures_util::{Stream, StreamExt, stream};
+use rust_decimal::Decimal;
 use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    BalanceUpdater, ClientProcessor, InputCsvTransaction, client_processor::ClientState, in_mem,
-    transaction::Transaction,
+    BalanceUpdater, ClientProcessor, InputCsvTransaction, NonNegative,
+    client_processor::ClientState, in_mem, transaction::Transaction,
 };
 
 // This struct is used to serialize the results of processing.
 // TODO: Reorg code and move this to a common place with `InputCsvTransaction`
 #[derive(Debug, Serialize)]
-pub(super) struct OutputClientData<MonetaryValue> {
+pub(super) struct OutputClientData {
     client: u16,
-    available: MonetaryValue,
-    held: MonetaryValue,
-    total: MonetaryValue,
+    available: NonNegative,
+    held: NonNegative,
+    total: NonNegative,
     locked: bool,
 }
 
-impl<MonetaryValue> TryFrom<ClientState<MonetaryValue>> for OutputClientData<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy,
-{
+impl TryFrom<ClientState> for OutputClientData {
     type Error = anyhow::Error;
 
-    fn try_from(client_state: ClientState<MonetaryValue>) -> Result<Self, Self::Error> {
+    fn try_from(client_state: ClientState) -> Result<Self, Self::Error> {
         let balances = client_state.balances();
         let total = balances.available().add(balances.held());
         let Some(total) = total else {
@@ -56,34 +54,31 @@ where
 // for a specific scenario.
 const TX_CHANNEL_SIZE: usize = 1000;
 
-pub(super) type ClientResult<MonetaryValue> =
-    Result<ClientState<MonetaryValue>, Error<MonetaryValue>>;
+pub(super) type ClientResult = Result<ClientState, Error>;
 
 #[derive(Debug, Error)]
-pub(super) enum Error<MonetaryValue>
-where
-    MonetaryValue: Copy,
-{
+pub(super) enum Error {
     #[error(transparent)]
     Csv(#[from] csv_async::Error),
     #[error(transparent)]
-    Tokio(#[from] tokio::sync::mpsc::error::SendError<Transaction<MonetaryValue>>),
+    Tokio(#[from] tokio::sync::mpsc::error::SendError<Transaction>),
     #[error("could not receive results for client {client}: {reason}")]
     CouldNotReceiveResults { client: u16, reason: String },
     #[error("deposit must have an amount")]
     DepositMustHaveAmount,
+    #[error("deposit must have a non-zero amount")]
+    DepositMustHaveNonZeroAmount,
     #[error("withdrawal must have an amount")]
     WithdrawalMustHaveAmount,
+    #[error("withdrawal must have a non-zero amount")]
+    WithdrawalMustHaveNonZeroAmount,
 }
 
 // The `Decimal` type, while being convenient for financial calculations,
 // consists of 4 u32 values. This is why `StreamProcessor` abstracts over it
 // so we can build a smaller type based on a single u64 and then
 // easily use it with the `StreamProcessor`.
-pub(super) struct StreamProcessor<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy + Send,
-{
+pub(super) struct StreamProcessor {
     // Each client is handled by a separate processor.
     // TODO: When there are millions of clients the current approach could be
     // problematic as we spawn a new task for each client. Potential solutions
@@ -93,15 +88,12 @@ where
     // - Use LRU cache - keep only N processors alive and reuse them.
     //   Persist a state of the processor when it is not used and
     //   restore when it is needed again.
-    client_processors: HashMap<u16, mpsc::Sender<Transaction<MonetaryValue>>>,
+    client_processors: HashMap<u16, mpsc::Sender<Transaction>>,
 
-    result_receivers: HashMap<u16, oneshot::Receiver<ClientState<MonetaryValue>>>,
+    result_receivers: HashMap<u16, oneshot::Receiver<ClientState>>,
 }
 
-impl<MonetaryValue> StreamProcessor<MonetaryValue>
-where
-    MonetaryValue: BalanceUpdater + Copy + Send + 'static,
-{
+impl StreamProcessor {
     pub(super) fn new() -> Self {
         Self {
             client_processors: HashMap::new(),
@@ -109,12 +101,9 @@ where
         }
     }
 
-    pub(super) async fn process<S>(
-        &mut self,
-        mut stream: S,
-    ) -> impl Stream<Item = ClientResult<MonetaryValue>>
+    pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientResult>
     where
-        S: Stream<Item = Result<InputCsvTransaction<MonetaryValue>, csv_async::Error>> + Unpin,
+        S: Stream<Item = Result<InputCsvTransaction<Decimal>, csv_async::Error>> + Unpin,
     {
         // Use usize so that we can basically ignore potential overflows. If there
         // are more than usize::MAX transactions in flight, we have bigger problems
@@ -126,7 +115,7 @@ where
                 //tracing::error!("csv record error");
                 continue;
             };
-            let Ok(tx): Result<Transaction<MonetaryValue>, _> = record.try_into() else {
+            let Ok(tx): Result<Transaction, _> = record.try_into() else {
                 //tracing::error!("invalid transaction in csv");
                 continue;
             };
@@ -184,13 +173,11 @@ where
     }
 }
 
-async fn send_and_register<MonetaryValue>(
-    tx: Transaction<MonetaryValue>,
+async fn send_and_register(
+    tx: Transaction,
     active_tx_clone: Arc<AtomicUsize>,
-    sender: &mpsc::Sender<Transaction<MonetaryValue>>,
-) where
-    MonetaryValue: BalanceUpdater + Copy + Send + 'static,
-{
+    sender: &mpsc::Sender<Transaction>,
+) {
     active_tx_clone.fetch_add(1, Ordering::SeqCst);
     if let Err(_err) = sender.send(tx).await {
         //tracing::error!(%_err);
