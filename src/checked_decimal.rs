@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::balances::BalanceUpdater;
 
+// TODO: Could potentially use std::num::NonZero
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub(super) struct NonZero(Decimal);
 
