@@ -18,7 +18,7 @@ There are still a couple of `TODO`s left in the code in the places that could po
 
 The system works with a couple of assumptions.
 
-- Balances can never be negative. There is a type that ensures this.
+- Balances can never be negative.
 - Account which is `locked` can not process any transactions.
 - Only `Deposit` transactions can be disputed.
 - Single transaction can be put under dispute again, even if it was disputed previously.
