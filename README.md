@@ -33,4 +33,4 @@ The system works with a couple of assumptions.
 
 There are a couple of unit tests scattered around the different modules to check code mechanics.
 
-The heavy lifting is done in the `tests` module which contains a bunch of scenario based tests. These have a form of input CSV file with the corresponding expected output. The file name describes the idea behind each scenario. Scenarios are split into tho directories: `sunny_day` and `malicious` - the former covers normal processing while the latter tries to cover potential edge cases and abuses.
+The heavy lifting is done in the `tests` module which contains a bunch of scenario based tests. These have a form of input CSV file with the corresponding expected output. The file name describes the idea behind each scenario. Scenarios are split into directories for added clarity.
