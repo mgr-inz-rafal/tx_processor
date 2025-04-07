@@ -10,13 +10,12 @@ use std::{
 };
 
 use futures_util::{Stream, StreamExt, stream};
-use rust_decimal::Decimal;
 use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    BalanceUpdater, ClientProcessor, InputCsvTransaction, NonNegative,
+    BalanceUpdater, ClientProcessor, InputCsvTransaction, NonNegative, NonZero,
     client_processor::ClientState, in_mem, transaction::Transaction,
 };
 
@@ -76,9 +75,12 @@ pub(super) enum Error {
 
 // The `Decimal` type, while being convenient for financial calculations,
 // consists of 4 u32 values. This is why `StreamProcessor` abstracts over it
-// so we can build a smaller type based on a single u64 and then
+// so we can build a smaller type and then
 // easily use it with the `StreamProcessor`.
-pub(super) struct StreamProcessor {
+pub(super) struct StreamProcessor<MonetaryValue>
+where
+    MonetaryValue: TryInto<NonZero>,
+{
     // Each client is handled by a separate processor.
     // TODO: When there are millions of clients the current approach could be
     // problematic as we spawn a new task for each client. Potential solutions
@@ -91,19 +93,25 @@ pub(super) struct StreamProcessor {
     client_processors: HashMap<u16, mpsc::Sender<Transaction>>,
 
     result_receivers: HashMap<u16, oneshot::Receiver<ClientState>>,
+
+    phantom: std::marker::PhantomData<MonetaryValue>,
 }
 
-impl StreamProcessor {
+impl<MonetaryValue> StreamProcessor<MonetaryValue>
+where
+    MonetaryValue: TryInto<NonZero>,
+{
     pub(super) fn new() -> Self {
         Self {
             client_processors: HashMap::new(),
             result_receivers: HashMap::new(),
+            phantom: std::marker::PhantomData,
         }
     }
 
     pub(super) async fn process<S>(&mut self, mut stream: S) -> impl Stream<Item = ClientResult>
     where
-        S: Stream<Item = Result<InputCsvTransaction<Decimal>, csv_async::Error>> + Unpin,
+        S: Stream<Item = Result<InputCsvTransaction<MonetaryValue>, csv_async::Error>> + Unpin,
     {
         // Use usize so that we can basically ignore potential overflows. If there
         // are more than usize::MAX transactions in flight, we have bigger problems
@@ -115,6 +123,7 @@ impl StreamProcessor {
                 //tracing::error!("csv record error");
                 continue;
             };
+
             let Ok(tx): Result<Transaction, _> = record.try_into() else {
                 //tracing::error!("invalid transaction in csv");
                 continue;

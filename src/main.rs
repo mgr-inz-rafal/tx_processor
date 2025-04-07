@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 // Tests:
 // 1. withdrawal - no existing client
 // unit for atomic update of two values
-// for nonzero
+// for nonzero take std::num
 
 // Abstract Decimal
 // remove the "checkeddecimal" suffix

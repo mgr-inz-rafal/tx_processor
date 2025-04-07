@@ -1,6 +1,5 @@
 //! A module consisting of types and functions to handle transactions.
 
-use rust_decimal::Decimal;
 use serde::Deserialize;
 
 use crate::{NonZero, stream_processor::Error};
@@ -167,10 +166,13 @@ pub(super) struct InputCsvTransaction<MonetaryValue> {
     amount: Option<MonetaryValue>,
 }
 
-impl TryFrom<InputCsvTransaction<Decimal>> for Transaction {
+impl<MonetaryValue> TryFrom<InputCsvTransaction<MonetaryValue>> for Transaction
+where
+    MonetaryValue: TryInto<NonZero>,
+{
     type Error = Error;
 
-    fn try_from(value: InputCsvTransaction<Decimal>) -> Result<Self, Self::Error> {
+    fn try_from(value: InputCsvTransaction<MonetaryValue>) -> Result<Self, Self::Error> {
         match value.kind {
             crate::TransactionCsvType::Deposit => {
                 let amount = value.amount.ok_or(Error::DepositMustHaveAmount)?;
