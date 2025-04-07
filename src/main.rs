@@ -66,4 +66,3 @@ async fn main() -> anyhow::Result<()> {
 
 // Tests:
 // unit for atomic update of two values
-
