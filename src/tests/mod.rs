@@ -10,8 +10,7 @@ use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use walkdir::WalkDir;
 
 use crate::{
-    InputCsvTransaction, OutputClientData, StreamProcessor, client_processor::ClientState,
-    stream_processor::Error,
+ client_processor::ClientState, csv, stream_processor::Error, StreamProcessor
 };
 
 fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec<PathBuf> {
@@ -53,7 +52,7 @@ async fn result_stream_to_csv(
         let mut writer = AsyncSerializer::from_writer(&mut buffer);
 
         while let Some(client_state) = results.next().await {
-            let record: OutputClientData = client_state.unwrap().try_into().unwrap();
+            let record: csv::OutputRecord = client_state.unwrap().try_into().unwrap();
             writer
                 .serialize(&record)
                 .await
@@ -94,7 +93,7 @@ async fn scenarios() {
     for path in files_matching_pattern_from_dir(SCENARIOS_PATH, "in") {
         // Read input
         let mut input = csv_deserializer_from_file(&path).await;
-        let mut input_stream = input.deserialize::<InputCsvTransaction<Decimal>>();
+        let mut input_stream = input.deserialize::<csv::InputRecord<Decimal>>();
 
         // Do the actual processing
         let mut stream_processor = StreamProcessor::new();
