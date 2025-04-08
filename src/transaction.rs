@@ -31,7 +31,7 @@ impl Transaction {
     }
 }
 
-// Payload (metadata) of the transaction.
+// Payload (data) of the transaction.
 pub(super) struct TransactionPayload<Kind> {
     client: u16,
     tx: u32,

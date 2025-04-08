@@ -1,7 +1,6 @@
 //! A client processor is responsible for processing transactions for a single client.
 //!
-//! It works with any value that implements the `BalanceUpdater` trait. It does not store
-//! the `total` balance as it can always be derived from `held` and `available`.
+//! It does not process the `total` balance as it can always be derived from `held` and `available`.
 
 use std::{
     collections::HashMap,

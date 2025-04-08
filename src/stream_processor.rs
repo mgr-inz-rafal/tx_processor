@@ -90,6 +90,9 @@ where
     // - Use LRU cache - keep only N processors alive and reuse them.
     //   Persist a state of the processor when it is not used and
     //   restore when it is needed again.
+    // - Or let the stream processor manage the state of all clients and just
+    //   update it as transactions are processed. This would require locking
+    //   and the state would grow indefinitely anyway.
     client_processors: HashMap<u16, mpsc::Sender<Transaction>>,
 
     result_receivers: HashMap<u16, oneshot::Receiver<ClientState>>,

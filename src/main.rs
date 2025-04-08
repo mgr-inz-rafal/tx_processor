@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let mut input = csv_reader.deserialize::<InputCsvTransaction<Decimal>>();
 
     let mut stream_processor = StreamProcessor::new();
-    let mut results = stream_processor.process(&mut input).await; // ?;
+    let mut results = stream_processor.process(&mut input).await;
 
     let mut writer = AsyncSerializer::from_writer(tokio::io::stdout().compat_write());
     while let Some(client_state) = results.next().await {
@@ -64,5 +64,3 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-// Tests:
-// unit for atomic update of two values
