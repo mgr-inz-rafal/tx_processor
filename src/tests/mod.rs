@@ -9,9 +9,7 @@ use std::{
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 use walkdir::WalkDir;
 
-use crate::{
- client_processor::ClientState, csv, stream_processor::Error, StreamProcessor
-};
+use crate::{StreamProcessor, client_processor::ClientState, csv, stream_processor::Error};
 
 fn files_matching_pattern_from_dir<P: AsRef<Path>>(dir: P, pattern: &str) -> Vec<PathBuf> {
     WalkDir::new(dir.as_ref())

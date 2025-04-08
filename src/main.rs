@@ -7,17 +7,16 @@ use csv_async::{AsyncReaderBuilder, AsyncSerializer};
 use db::in_mem;
 use futures_util::StreamExt;
 use rust_decimal::Decimal;
-use stream_processor::{ StreamProcessor};
+use stream_processor::StreamProcessor;
 use tokio::fs::File;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-
 
 mod balances;
 mod checked_decimal;
 mod client_processor;
+mod csv;
 mod db;
 mod error;
-mod csv;
 mod stream_processor;
 #[cfg(test)]
 mod tests;
@@ -64,4 +63,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

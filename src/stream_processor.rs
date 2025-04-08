@@ -14,7 +14,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    client_processor::ClientState, csv, in_mem, transaction::Transaction, ClientProcessor, NonZero
+    ClientProcessor, NonZero, client_processor::ClientState, csv, in_mem, transaction::Transaction,
 };
 
 // TODO: This could potentially be a config option to adjust the backpressure

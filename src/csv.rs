@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    BalanceUpdater, NonNegative, NonZero,
     client_processor::ClientState,
     transaction::{
         Chargeback, Deposit, Dispute, Resolve, Transaction, TransactionPayload, Withdrawal,
     },
-    BalanceUpdater, NonNegative, NonZero,
 };
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, thiserror::Error)]
 pub(super) enum Error {
     #[error("deposit must have an amount")]
