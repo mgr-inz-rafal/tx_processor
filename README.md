@@ -28,7 +28,8 @@ The system works with a couple of assumptions.
 
 - Error handling is implemented, but in order not to pollute the `stdout`, this is just in form of commented out `tracing` lines. Hence, transactions that lead to incorrect state (balance underflow) or inputs that are incorrect (deposit without amount) are silently ignored.
 - There is an unlimited time window for the disputes to be raised. This could lead to internal storage overflow. A stub for supporting the pruning system is prepared.
-- No test for deposit overflow (issues when trying to deserialize Decimal::MAX from .csv via Serde) - would require some workaround with String
+- There's a separate task to manage each client state, there are pros & cons to this, but it may not scale well. Comment in the `struct StreamProcessor` explain the potential mitigation strategies.
+- No test for deposit overflow (issues when trying to deserialize `Decimal::MAX` from `.csv` via `serde`) - this would require some workaround with String
 
 ## Tests
 
